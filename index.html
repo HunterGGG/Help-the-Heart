@@ -6,31 +6,22 @@
 <title>Help the Heart ❤️</title>
 <style>
 html, body { margin:0; padding:0; overflow:hidden; font-family:monospace; background:black; }
-canvas { display:block; }
+canvas { display:block; image-rendering: pixelated; }
 
 .overlay{
   position:fixed; inset:0; display:flex; flex-direction:column;
   justify-content:center; align-items:center;
   background:rgba(0,0,0,0.65); color:white; text-align:center; z-index:10;
 }
-.hidden{display:none;}
-button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
+.hidden{display:none !important;}
+button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer; border-radius:8px; border:1px solid #fff4; background:#1f1f1f; color:#fff;}
+button:hover{background:#2f2f2f;}
 
 #ui{
   position:fixed; top:10px; left:10px; color:white; font-size:14px;
   z-index:5; text-shadow:2px 2px 0px black;
 }
 
-.controls{
-  position:fixed; bottom:20px; left:0; right:0;
-  display:flex; justify-content:space-between;
-  padding:0 40px; z-index:6;
-}
-.ctrl{
-  width:70px; height:70px; background:rgba(255,255,255,0.2);
-  display:flex; align-items:center; justify-content:center;
-  font-size:30px; color:white; border-radius:10px;
-}
 #message{margin-top:20px; max-width:300px;}
 </style>
 </head>
@@ -39,12 +30,15 @@ button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
 <div id="ui" class="hidden">
   <div>⏱ <span id="time">0</span>s</div>
   <div>⬆ <span id="height">0</span>m</div>
+  <div id="modeLabel">🎮 Story</div>
 </div>
 
 <div id="menu" class="overlay">
   <h1>Help the Heart ❤️</h1>
   <p>Помоги сердечку добраться до поздравления!</p>
-  <button onclick="startGame()">Играть</button>
+  <button onclick="startGame('story')">Играть</button>
+  <button id="endlessBtn" class="hidden" onclick="startGame('endless')">Бесконечный режим</button>
+  <small id="unlockHint">Открой бесконечный режим, дойдя до финиша ❤️</small>
 </div>
 
 <div id="gameOver" class="overlay hidden">
@@ -53,14 +47,9 @@ button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
 </div>
 
 <div id="win" class="overlay hidden">
-  <h1>Ты добрался! ❤️</h1>
-  <div id="message">ТВОЙ ТЕКСТ ПОЗДРАВЛЕНИЯ</div>
+  <h1>С Днем всех влюблённых! ❤️</h1>
+  <div id="message">Поздравляю с 14 февраля, очень сильно тебя люблю!!!</div>
   <button onclick="resetGame()">Сыграть снова</button>
-</div>
-
-<div class="controls hidden" id="touchControls">
-  <div class="ctrl" id="leftBtn">◀</div>
-  <div class="ctrl" id="rightBtn">▶</div>
 </div>
 
 <canvas id="game"></canvas>
@@ -69,17 +58,22 @@ button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-// === resize canvas ===
 function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
 resize();
 window.addEventListener("resize", resize);
 
-// === глобальные переменные ===
 let state = "menu";
+let gameMode = "story";
 let gravity = 0.5;
 let jumpForce = -12;
 let moveSpeed = 5;
-let player, platforms, particles;
+const maxJumpRise = (jumpForce*jumpForce)/(2*gravity);
+const safeVerticalGap = Math.floor(maxJumpRise*0.7);
+const safeHorizontalReach = Math.floor((Math.abs(jumpForce)/gravity)*moveSpeed*0.75);
+let player = createPlayer();
+let platforms = [];
+let particles = [];
+let trail = [];
 let cameraY = 0;
 let keys = {};
 let tiltX = 0;
@@ -87,86 +81,135 @@ let useTilt = false;
 let startTime = 0;
 let levelHeight = 2000;
 let maxHeight = 0;
+let generatedTopY = 0;
+let endlessUnlocked = localStorage.getItem("heart_endless_unlocked") === "1";
+let lastGeneratedPlatform = null;
+let heartSquash = 0;
 
-// === helper: показать экран ===
 function showScreen(name){
-  ["menu","gameOver","win"].forEach(id=>{
-    document.getElementById(id).classList.add("hidden");
-  });
+  ["menu","gameOver","win"].forEach(id=>document.getElementById(id).classList.add("hidden"));
   document.getElementById("ui").classList.add("hidden");
-  document.getElementById("touchControls").classList.add("hidden");
 
   if(name==="menu") document.getElementById("menu").classList.remove("hidden");
   if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
   if(name==="win") document.getElementById("win").classList.remove("hidden");
   if(name==="playing"){
     document.getElementById("ui").classList.remove("hidden");
-    document.getElementById("touchControls").classList.remove("hidden");
+  }
+  updateMenuButtons();
+}
+
+function updateMenuButtons(){
+  const endlessBtn = document.getElementById("endlessBtn");
+  const unlockHint = document.getElementById("unlockHint");
+  if(endlessUnlocked){
+    endlessBtn.classList.remove("hidden");
+    unlockHint.classList.add("hidden");
+  }else{
+    endlessBtn.classList.add("hidden");
+    unlockHint.classList.remove("hidden");
   }
 }
 
-// === создать игрока ===
 function createPlayer(){
   return { x:canvas.width/2-10, y:canvas.height-120, vy:0, size:20 };
 }
 
-// === генерация уровня ===
-function generateLevel(){
-  let arr=[], y=canvas.height;
-  while(y>-levelHeight){
-    let p={ x:Math.random()*(canvas.width-80), y:y, width:80, height:12, type:"normal", vx:0, broken:false };
-    let r=Math.random();
-    if(r<0.2){ p.type="moving"; p.vx=2; }
-    else if(r<0.35){ p.type="break"; }
-    arr.push(p);
-    y -= 90 + Math.random()*40;
+function createRandomPlatform(y){
+  let p={ x:Math.random()*(canvas.width-90), y:y, width:90, height:12, type:"normal", vx:0, broken:false };
+  let r=Math.random();
+  if(r<0.18){ p.type="moving"; p.vx=2 + Math.random()*0.8; }
+  else if(r<0.36){ p.type="break"; }
+  return p;
+}
+
+function createReachablePlatform(y, prevPlatform){
+  const p = createRandomPlatform(y);
+  if(!prevPlatform) return p;
+
+  const minX = Math.max(0, prevPlatform.x - safeHorizontalReach);
+  const maxX = Math.min(canvas.width - p.width, prevPlatform.x + prevPlatform.width + safeHorizontalReach - p.width);
+  if(maxX > minX){
+    p.x = minX + Math.random()*(maxX-minX);
   }
-  // финальная платформа во всю ширину
-  arr.push({ x:0, y:-levelHeight-100, width:canvas.width, height:20, type:"final" });
+  return p;
+}
+
+function generateLevel(mode="story"){
+  const arr=[];
+  arr.push({ x:0, y:canvas.height-35, width:canvas.width, height:18, type:"normal", vx:0, broken:false, starter:true });
+
+  let y=canvas.height-35;
+  let prevPlatform = arr[0];
+  while(y>-levelHeight){
+    y -= 48 + Math.random()*(safeVerticalGap-48);
+    const nextPlatform = createReachablePlatform(y, prevPlatform);
+    arr.push(nextPlatform);
+    prevPlatform = nextPlatform;
+  }
+
+  if(mode === "story"){
+    const finalY = -levelHeight - 40;
+    const supportA = { x:canvas.width/2-80, y:finalY + 88, width:160, height:12, type:"normal", vx:0, broken:false };
+    const supportB = { x:canvas.width/2-65, y:finalY + 160, width:130, height:12, type:"moving", vx:2.2, broken:false };
+    arr.push(supportA);
+    arr.push(supportB);
+    arr.push({ x:0, y:finalY, width:canvas.width, height:20, type:"final" });
+    generatedTopY = finalY;
+    lastGeneratedPlatform = supportA;
+  }else{
+    generatedTopY = y;
+    lastGeneratedPlatform = prevPlatform;
+  }
   return arr;
 }
 
-// === старт игры ===
-function startGame(){
+function extendEndlessPlatforms(){
+  if(gameMode !== "endless") return;
+
+  while(generatedTopY > cameraY - canvas.height*2){
+    generatedTopY -= 48 + Math.random()*(safeVerticalGap-48);
+    const nextPlatform = createReachablePlatform(generatedTopY, lastGeneratedPlatform);
+    platforms.push(nextPlatform);
+    lastGeneratedPlatform = nextPlatform;
+  }
+
+  platforms = platforms.filter(p => p.y < cameraY + canvas.height + 240);
+}
+
+function startGame(mode="story"){
+  gameMode = mode;
   player = createPlayer();
-  platforms = generateLevel();
+  platforms = generateLevel(mode);
   particles = [];
+  trail = [];
+  heartSquash = 0;
   cameraY = 0;
   maxHeight = 0;
   startTime = Date.now();
   state = "playing";
+  document.getElementById("modeLabel").innerText = mode === "story" ? "🎮 Story" : "♾ Endless";
   showScreen("playing");
 
-  // запрос гироскопа, но не ждём
   if(typeof DeviceOrientationEvent !== "undefined"){
     if(typeof DeviceOrientationEvent.requestPermission === "function"){
-      DeviceOrientationEvent.requestPermission().then(r=>{
-        if(r==="granted") useTilt=true;
-      }).catch(e=>console.log("Гироскоп недоступен"));
+      DeviceOrientationEvent.requestPermission().then(r=>{ if(r==="granted") useTilt=true; }).catch(()=>{});
     } else { useTilt=true; }
   }
 }
 
-// === сброс игры ===
 function resetGame(){ state="menu"; showScreen("menu"); }
 
-// === события ===
 window.addEventListener("deviceorientation", e=>{ tiltX=e.gamma/8; });
 window.addEventListener("keydown", e=>keys[e.key]=true);
 window.addEventListener("keyup", e=>keys[e.key]=false);
-document.getElementById("leftBtn").ontouchstart=()=>keys["ArrowLeft"]=true;
-document.getElementById("leftBtn").ontouchend=()=>keys["ArrowLeft"]=false;
-document.getElementById("rightBtn").ontouchstart=()=>keys["ArrowRight"]=true;
-document.getElementById("rightBtn").ontouchend=()=>keys["ArrowRight"]=false;
 
-// === частицы ===
 function spawnParticles(x,y,count=6){
   for(let i=0;i<count;i++){
     particles.push({ x:x, y:y, vx:(Math.random()-0.5)*4, vy:(Math.random()-1)*4, life:25 });
   }
 }
 
-// === update ===
 function update(){
   if(state!=="playing") return;
 
@@ -183,7 +226,12 @@ function update(){
   if(player.x+player.size>canvas.width) player.x=canvas.width-player.size;
 
   for(let p of platforms){
-    if(p.type==="moving"){ p.x+=p.vx; if(p.x<0||p.x+p.width>canvas.width)p.vx*=-1; }
+    if(p.type==="break" && p.broken) continue;
+
+    if(p.type==="moving"){
+      p.x+=p.vx;
+      if(p.x<0||p.x+p.width>canvas.width) p.vx*=-1;
+    }
 
     if(player.vy>0 &&
        player.x+player.size>p.x &&
@@ -193,66 +241,254 @@ function update(){
 
       player.y = p.y - player.size;
 
-      if(p.type==="break" && !p.broken){ p.broken=true; spawnParticles(p.x+p.width/2,p.y,10); }
-      else player.vy = jumpForce;
+      if(p.type==="break" && !p.broken){
+        p.broken=true;
+        spawnParticles(p.x+p.width/2,p.y,10);
+        player.vy = jumpForce;
+        heartSquash = 0.26;
+      } else {
+        player.vy = jumpForce;
+        heartSquash = 0.26;
+      }
 
-      if(p.type==="final"){ state="win"; showScreen("win"); }
+      if(p.type==="final" && gameMode === "story"){
+        endlessUnlocked = true;
+        localStorage.setItem("heart_endless_unlocked", "1");
+        state="win";
+        showScreen("win");
+      }
     }
   }
 
-  if(player.y < cameraY + canvas.height*0.35){ cameraY = player.y - canvas.height*0.35; }
+  if(player.y < cameraY + canvas.height*0.35) cameraY = player.y - canvas.height*0.35;
   if(player.y - cameraY > canvas.height){ state="gameover"; showScreen("gameover"); }
 
   particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.life--; });
   particles = particles.filter(p=>p.life>0);
+
+  heartSquash *= 0.82;
+  updateTrail();
+  extendEndlessPlatforms();
 
   maxHeight = Math.max(maxHeight,-cameraY);
   document.getElementById("time").innerText = Math.floor((Date.now()-startTime)/1000);
   document.getElementById("height").innerText = Math.floor(maxHeight/100);
 }
 
-// === draw ===
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpColor(c1, c2, t){
+  const a = c1.match(/\w\w/g).map(h=>parseInt(h,16));
+  const b = c2.match(/\w\w/g).map(h=>parseInt(h,16));
+  const r = Math.round(lerp(a[0], b[0], t)).toString(16).padStart(2,'0');
+  const g = Math.round(lerp(a[1], b[1], t)).toString(16).padStart(2,'0');
+  const bl = Math.round(lerp(a[2], b[2], t)).toString(16).padStart(2,'0');
+  return `#${r}${g}${bl}`;
+}
+
+function drawPixelRect(x,y,w,h,color,size=4){
+  ctx.fillStyle = color;
+  for(let yy=0; yy<h; yy+=size){
+    for(let xx=0; xx<w; xx+=size){
+      ctx.fillRect(x+xx,y+yy,size,size);
+    }
+  }
+}
+
 function drawBackground(){
-  let progress = Math.min(-cameraY/levelHeight,1);
-  let grad = ctx.createLinearGradient(0,0,0,canvas.height);
-  if(progress<0.33){ grad.addColorStop(0,"#ffb6c1"); grad.addColorStop(1,"#ffc0cb"); }
-  else if(progress<0.66){ grad.addColorStop(0,"#b19cd9"); grad.addColorStop(1,"#8a2be2"); }
-  else{ grad.addColorStop(0,"#000010"); grad.addColorStop(1,"#000000"); }
-  ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const progress = Math.min(Math.max(-cameraY/levelHeight,0),1);
+
+  const cA1 = "#ffb6c1", cA2 = "#ffc0cb";
+  const cB1 = "#c6b7ff", cB2 = "#7d67d9";
+  const cC1 = "#090c24", cC2 = "#000000";
+
+  const t = progress < 0.5 ? progress*2 : (progress-0.5)*2;
+  const top = progress < 0.5 ? lerpColor(cA1,cB1,t) : lerpColor(cB1,cC1,t);
+  const bottom = progress < 0.5 ? lerpColor(cA2,cB2,t) : lerpColor(cB2,cC2,t);
+
+  const grad = ctx.createLinearGradient(0,0,0,canvas.height);
+  grad.addColorStop(0,top);
+  grad.addColorStop(1,bottom);
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  drawMountainsAndTrees(progress);
+  drawClouds(progress);
+  drawStars(progress);
+}
+
+function drawMountainsAndTrees(progress){
+  const alpha = Math.max(0, 1 - progress*1.4);
+  if(alpha<=0) return;
+  ctx.globalAlpha = alpha;
+
+  const baseY = canvas.height - 80;
+  for(let i=0;i<8;i++){
+    const w=130, h=60 + (i%3)*20;
+    const x=i*120 - ((-cameraY*0.15)%120);
+    ctx.fillStyle = i%2 ? "#533a62" : "#6c4a7e";
+    ctx.beginPath();
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x+w/2, baseY-h);
+    ctx.lineTo(x+w, baseY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  for(let i=0;i<16;i++){
+    const tx = i*80 - ((-cameraY*0.3)%80);
+    const ty = canvas.height - 70 + (i%3)*2;
+    drawPixelRect(tx+10, ty, 6, 14, "#4b2d1e", 2);
+    ctx.fillStyle = "#2fb55b";
+    ctx.fillRect(tx, ty-8, 26, 10);
+    ctx.fillRect(tx+4, ty-14, 18, 8);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawClouds(progress){
+  const alpha = 1 - Math.abs(progress-0.45)*3;
+  if(alpha<=0) return;
+  ctx.globalAlpha = Math.max(0, Math.min(alpha,0.5));
+
+  for(let i=0;i<8;i++){
+    const x = (i*170 + (-cameraY*0.22)) % (canvas.width + 260) - 130;
+    const y = 80 + (i%3)*60;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(x, y, 70, 16);
+    ctx.fillRect(x+10, y-8, 38, 8);
+    ctx.fillRect(x+18, y+16, 28, 6);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawStars(progress){
+  const alpha = Math.max(0, (progress-0.55)*2.4);
+  if(alpha<=0) return;
+  ctx.globalAlpha = Math.min(alpha, 1);
+
+  for(let i=0;i<80;i++){
+    const x = (i*97)%canvas.width;
+    const y = (i*53 + Math.floor(-cameraY*0.1))%canvas.height;
+    const twinkle = ((Date.now()/220 + i*7)%12)<6 ? 2 : 1;
+    ctx.fillStyle = i%5===0 ? "#ffd47a" : "#ffffff";
+    ctx.fillRect(x, y, twinkle, twinkle);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+
+function updateTrail(){
+  trail.unshift({ x: player.x + player.size/2, y: player.y + player.size/2, life: 1 });
+  if(trail.length>22) trail.length = 22;
+  for(const t of trail) t.life -= 0.045;
+  trail = trail.filter(t=>t.life>0);
+}
+
+function drawTrail(){
+  for(let i=trail.length-1;i>=0;i--){
+    const t = trail[i];
+    const mix = i / Math.max(trail.length-1,1);
+    const color = lerpColor("#3d001a", "#ff6aa8", 1-mix);
+    const size = 4 + Math.floor((1-mix)*6);
+    const px = Math.round(t.x - size/2);
+    const py = Math.round(t.y - size/2);
+    drawPixelRect(px, py, size, size, color, 2);
+  }
 }
 
 function drawHeart(x,y){
-  ctx.fillStyle="red"; let s=3;
-  let px=[[1,0],[2,0],[4,0],[5,0],
-  [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
-  [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
-  [1,3],[2,3],[3,3],[4,3],[5,3],
-  [2,4],[3,4],[4,4],
-  [3,5]];
-  for(let p of px){ ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s); }
+  const s=3;
+  const px=[[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[4,4],[3,5]];
+  const key = new Set(px.map(p=>`${p[0]},${p[1]}`));
+
+  ctx.fillStyle="#000";
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(const p of px){
+    for(const d of dirs){
+      const nx=p[0]+d[0], ny=p[1]+d[1];
+      if(!key.has(`${nx},${ny}`)) ctx.fillRect(x+nx*s, y+ny*s, s, s);
+    }
+  }
+
+  ctx.fillStyle="#ff1e4d";
+  for(let p of px) ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s);
+  ctx.fillStyle="#ff8fab";
+  ctx.fillRect(x+2*s,y+1*s,s,s);
+  ctx.fillRect(x+4*s,y+1*s,s,s);
+}
+
+function drawPlatform(p){
+  if(p.type === "normal"){
+    ctx.fillStyle = "#f6f7ff";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#d4d8ef";
+    for(let i=0;i<p.width;i+=8) ctx.fillRect(p.x+i,p.y+p.height-3,4,2);
+    return;
+  }
+
+  if(p.type === "moving"){
+    ctx.fillStyle = "#00e6d1";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#b8fff8";
+    for(let i=0;i<p.width;i+=10) ctx.fillRect(p.x+i,p.y+2,5,2);
+    ctx.fillStyle = "#088a7f";
+    ctx.fillRect(p.x+2,p.y+p.height-3,p.width-4,2);
+    return;
+  }
+
+  if(p.type === "break"){
+    ctx.fillStyle = "#d2a66a";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#805b32";
+    for(let i=6;i<p.width-6;i+=16){
+      ctx.fillRect(p.x+i,p.y+2,2,4);
+      ctx.fillRect(p.x+i-2,p.y+5,6,2);
+    }
+    ctx.fillRect(p.x+8,p.y+8,12,2);
+    ctx.fillRect(p.x+p.width-24,p.y+4,14,2);
+    return;
+  }
+
+  if(p.type === "final"){
+    ctx.fillStyle="#22ff77";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle="#c6ffd6";
+    for(let i=0;i<p.width;i+=18) ctx.fillRect(p.x+i,p.y+3,10,3);
+  }
 }
 
 function draw(){
   drawBackground();
+  if(!player) return;
+
   ctx.save();
   ctx.translate(0,-cameraY);
   for(let p of platforms){
     if(p.type==="break" && p.broken) continue;
-    if(p.type==="moving") ctx.fillStyle="#00ffcc";
-    else if(p.type==="break") ctx.fillStyle="#ffcc00";
-    else if(p.type==="final") ctx.fillStyle="#00ff00";
-    else ctx.fillStyle="white";
-    ctx.fillRect(p.x,p.y,p.width,p.height);
+    drawPlatform(p);
   }
+  drawTrail();
+  const heartCenterX = player.x + 10.5;
+  const heartCenterY = player.y + 9;
+  const scaleX = 1 + heartSquash*0.9;
+  const scaleY = 1 - heartSquash*0.55;
+  ctx.save();
+  ctx.translate(heartCenterX, heartCenterY);
+  ctx.scale(scaleX, scaleY);
+  ctx.translate(-heartCenterX, -heartCenterY);
   drawHeart(player.x,player.y);
+  ctx.restore();
   ctx.restore();
 
   ctx.fillStyle="red";
-  particles.forEach(p=>{ ctx.fillRect(p.x,p.y-cameraY,3,3); });
+  particles.forEach(p=>ctx.fillRect(p.x,p.y-cameraY,3,3));
 }
 
-// === loop ===
 function loop(){ update(); draw(); requestAnimationFrame(loop); }
+updateMenuButtons();
 loop();
 </script>
 </body>
