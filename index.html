@@ -22,17 +22,6 @@ button:hover{background:#2f2f2f;}
   z-index:5; text-shadow:2px 2px 0px black;
 }
 
-.controls{
-  position:fixed; bottom:20px; left:0; right:0;
-  display:flex; justify-content:space-between;
-  padding:0 40px; z-index:6;
-}
-.ctrl{
-  width:70px; height:70px; background:rgba(255,255,255,0.2);
-  display:flex; align-items:center; justify-content:center;
-  font-size:30px; color:white; border-radius:10px;
-  user-select:none;
-}
 #message{margin-top:20px; max-width:300px;}
 </style>
 </head>
@@ -63,11 +52,6 @@ button:hover{background:#2f2f2f;}
   <button onclick="resetGame()">Сыграть снова</button>
 </div>
 
-<div class="controls hidden" id="touchControls">
-  <div class="ctrl" id="leftBtn">◀</div>
-  <div class="ctrl" id="rightBtn">▶</div>
-</div>
-
 <canvas id="game"></canvas>
 
 <script>
@@ -83,6 +67,9 @@ let gameMode = "story";
 let gravity = 0.5;
 let jumpForce = -12;
 let moveSpeed = 5;
+const maxJumpRise = (jumpForce*jumpForce)/(2*gravity);
+const safeVerticalGap = Math.floor(maxJumpRise*0.7);
+const safeHorizontalReach = Math.floor((Math.abs(jumpForce)/gravity)*moveSpeed*0.75);
 let player = createPlayer();
 let platforms = [];
 let particles = [];
@@ -96,18 +83,18 @@ let levelHeight = 2000;
 let maxHeight = 0;
 let generatedTopY = 0;
 let endlessUnlocked = localStorage.getItem("heart_endless_unlocked") === "1";
+let lastGeneratedPlatform = null;
+let heartSquash = 0;
 
 function showScreen(name){
   ["menu","gameOver","win"].forEach(id=>document.getElementById(id).classList.add("hidden"));
   document.getElementById("ui").classList.add("hidden");
-  document.getElementById("touchControls").classList.add("hidden");
 
   if(name==="menu") document.getElementById("menu").classList.remove("hidden");
   if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
   if(name==="win") document.getElementById("win").classList.remove("hidden");
   if(name==="playing"){
     document.getElementById("ui").classList.remove("hidden");
-    document.getElementById("touchControls").classList.remove("hidden");
   }
   updateMenuButtons();
 }
@@ -136,23 +123,43 @@ function createRandomPlatform(y){
   return p;
 }
 
+function createReachablePlatform(y, prevPlatform){
+  const p = createRandomPlatform(y);
+  if(!prevPlatform) return p;
+
+  const minX = Math.max(0, prevPlatform.x - safeHorizontalReach);
+  const maxX = Math.min(canvas.width - p.width, prevPlatform.x + prevPlatform.width + safeHorizontalReach - p.width);
+  if(maxX > minX){
+    p.x = minX + Math.random()*(maxX-minX);
+  }
+  return p;
+}
+
 function generateLevel(mode="story"){
   const arr=[];
   arr.push({ x:0, y:canvas.height-35, width:canvas.width, height:18, type:"normal", vx:0, broken:false, starter:true });
-  let y=canvas.height-100;
+
+  let y=canvas.height-35;
+  let prevPlatform = arr[0];
   while(y>-levelHeight){
-    arr.push(createRandomPlatform(y));
-    y -= 70 + Math.random()*35;
+    y -= 48 + Math.random()*(safeVerticalGap-48);
+    const nextPlatform = createReachablePlatform(y, prevPlatform);
+    arr.push(nextPlatform);
+    prevPlatform = nextPlatform;
   }
 
   if(mode === "story"){
     const finalY = -levelHeight - 40;
-    arr.push({ x:canvas.width/2-70, y:finalY + 90, width:140, height:12, type:"normal", vx:0, broken:false });
-    arr.push({ x:canvas.width/2-55, y:finalY + 170, width:110, height:12, type:"moving", vx:2.2, broken:false });
+    const supportA = { x:canvas.width/2-80, y:finalY + 88, width:160, height:12, type:"normal", vx:0, broken:false };
+    const supportB = { x:canvas.width/2-65, y:finalY + 160, width:130, height:12, type:"moving", vx:2.2, broken:false };
+    arr.push(supportA);
+    arr.push(supportB);
     arr.push({ x:0, y:finalY, width:canvas.width, height:20, type:"final" });
     generatedTopY = finalY;
+    lastGeneratedPlatform = supportA;
   }else{
     generatedTopY = y;
+    lastGeneratedPlatform = prevPlatform;
   }
   return arr;
 }
@@ -161,8 +168,10 @@ function extendEndlessPlatforms(){
   if(gameMode !== "endless") return;
 
   while(generatedTopY > cameraY - canvas.height*2){
-    generatedTopY -= 70 + Math.random()*35;
-    platforms.push(createRandomPlatform(generatedTopY));
+    generatedTopY -= 48 + Math.random()*(safeVerticalGap-48);
+    const nextPlatform = createReachablePlatform(generatedTopY, lastGeneratedPlatform);
+    platforms.push(nextPlatform);
+    lastGeneratedPlatform = nextPlatform;
   }
 
   platforms = platforms.filter(p => p.y < cameraY + canvas.height + 240);
@@ -174,6 +183,7 @@ function startGame(mode="story"){
   platforms = generateLevel(mode);
   particles = [];
   trail = [];
+  heartSquash = 0;
   cameraY = 0;
   maxHeight = 0;
   startTime = Date.now();
@@ -193,10 +203,6 @@ function resetGame(){ state="menu"; showScreen("menu"); }
 window.addEventListener("deviceorientation", e=>{ tiltX=e.gamma/8; });
 window.addEventListener("keydown", e=>keys[e.key]=true);
 window.addEventListener("keyup", e=>keys[e.key]=false);
-document.getElementById("leftBtn").ontouchstart=()=>keys["ArrowLeft"]=true;
-document.getElementById("leftBtn").ontouchend=()=>keys["ArrowLeft"]=false;
-document.getElementById("rightBtn").ontouchstart=()=>keys["ArrowRight"]=true;
-document.getElementById("rightBtn").ontouchend=()=>keys["ArrowRight"]=false;
 
 function spawnParticles(x,y,count=6){
   for(let i=0;i<count;i++){
@@ -239,8 +245,10 @@ function update(){
         p.broken=true;
         spawnParticles(p.x+p.width/2,p.y,10);
         player.vy = jumpForce;
+        heartSquash = 0.26;
       } else {
         player.vy = jumpForce;
+        heartSquash = 0.26;
       }
 
       if(p.type==="final" && gameMode === "story"){
@@ -258,6 +266,7 @@ function update(){
   particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.life--; });
   particles = particles.filter(p=>p.life>0);
 
+  heartSquash *= 0.82;
   updateTrail();
   extendEndlessPlatforms();
 
@@ -462,7 +471,16 @@ function draw(){
     drawPlatform(p);
   }
   drawTrail();
+  const heartCenterX = player.x + 10.5;
+  const heartCenterY = player.y + 9;
+  const scaleX = 1 + heartSquash*0.9;
+  const scaleY = 1 - heartSquash*0.55;
+  ctx.save();
+  ctx.translate(heartCenterX, heartCenterY);
+  ctx.scale(scaleX, scaleY);
+  ctx.translate(-heartCenterX, -heartCenterY);
   drawHeart(player.x,player.y);
+  ctx.restore();
   ctx.restore();
 
   ctx.fillStyle="red";
