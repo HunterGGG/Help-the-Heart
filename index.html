@@ -3,333 +3,256 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Help the Heart</title>
+<title>Help the Heart ❤️</title>
 <style>
-html,body{margin:0;padding:0;overflow:hidden;font-family:monospace;background:black;}
-canvas{display:block;}
+html, body { margin:0; padding:0; overflow:hidden; font-family:monospace; background:black; }
+canvas { display:block; }
 
 .overlay{
-position:fixed;inset:0;display:flex;flex-direction:column;
-justify-content:center;align-items:center;
-background:rgba(0,0,0,0.65);color:white;text-align:center;z-index:10;
+  position:fixed; inset:0; display:flex; flex-direction:column;
+  justify-content:center; align-items:center;
+  background:rgba(0,0,0,0.65); color:white; text-align:center; z-index:10;
 }
-
 .hidden{display:none;}
-
-button{padding:12px 22px;margin:10px;font-size:16px;cursor:pointer;}
+button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
 
 #ui{
-position:fixed;top:10px;left:10px;color:white;font-size:14px;
-z-index:5;text-shadow:2px 2px 0px black;
+  position:fixed; top:10px; left:10px; color:white; font-size:14px;
+  z-index:5; text-shadow:2px 2px 0px black;
 }
 
 .controls{
-position:fixed;bottom:20px;left:0;right:0;
-display:flex;justify-content:space-between;
-padding:0 40px;z-index:6;
+  position:fixed; bottom:20px; left:0; right:0;
+  display:flex; justify-content:space-between;
+  padding:0 40px; z-index:6;
 }
 .ctrl{
-width:70px;height:70px;background:rgba(255,255,255,0.2);
-display:flex;align-items:center;justify-content:center;
-font-size:30px;color:white;border-radius:10px;
+  width:70px; height:70px; background:rgba(255,255,255,0.2);
+  display:flex; align-items:center; justify-content:center;
+  font-size:30px; color:white; border-radius:10px;
 }
-#message{margin-top:20px;max-width:300px;}
+#message{margin-top:20px; max-width:300px;}
 </style>
 </head>
 <body>
 
 <div id="ui" class="hidden">
-<div>⏱ <span id="time">0</span>s</div>
-<div>⬆ <span id="height">0</span>m</div>
+  <div>⏱ <span id="time">0</span>s</div>
+  <div>⬆ <span id="height">0</span>m</div>
 </div>
 
 <div id="menu" class="overlay">
-<h1>Help the Heart ❤️</h1>
-<p>Помоги сердечку добраться до поздравления!</p>
-<button onclick="startGame()">Играть</button>
+  <h1>Help the Heart ❤️</h1>
+  <p>Помоги сердечку добраться до поздравления!</p>
+  <button onclick="startGame()">Играть</button>
 </div>
 
 <div id="gameOver" class="overlay hidden">
-<h1>Game Over 💔</h1>
-<button onclick="resetGame()">Сыграть снова</button>
+  <h1>Game Over 💔</h1>
+  <button onclick="resetGame()">Сыграть снова</button>
 </div>
 
 <div id="win" class="overlay hidden">
-<h1>Ты добрался! ❤️</h1>
-<div id="message">ТВОЙ ТЕКСТ ПОЗДРАВЛЕНИЯ</div>
-<button onclick="resetGame()">Сыграть снова</button>
+  <h1>Ты добрался! ❤️</h1>
+  <div id="message">ТВОЙ ТЕКСТ ПОЗДРАВЛЕНИЯ</div>
+  <button onclick="resetGame()">Сыграть снова</button>
 </div>
 
 <div class="controls hidden" id="touchControls">
-<div class="ctrl" id="leftBtn">◀</div>
-<div class="ctrl" id="rightBtn">▶</div>
+  <div class="ctrl" id="leftBtn">◀</div>
+  <div class="ctrl" id="rightBtn">▶</div>
 </div>
 
 <canvas id="game"></canvas>
 
 <script>
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-function resize(){
-canvas.width=innerWidth;
-canvas.height=innerHeight;
-}
+// === resize canvas ===
+function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
 resize();
-window.addEventListener("resize",resize);
+window.addEventListener("resize", resize);
 
-let state="menu";
-let gravity=0.5;
-let jumpForce=-12;
-let moveSpeed=5;
-let player,platforms,particles;
-let cameraY=0;
-let keys={};
-let tiltX=0;
-let useTilt=false;
-let startTime=0;
-let levelHeight=8000;
-let maxHeight=0;
+// === глобальные переменные ===
+let state = "menu";
+let gravity = 0.5;
+let jumpForce = -12;
+let moveSpeed = 5;
+let player, platforms, particles;
+let cameraY = 0;
+let keys = {};
+let tiltX = 0;
+let useTilt = false;
+let startTime = 0;
+let levelHeight = 2000;
+let maxHeight = 0;
 
+// === helper: показать экран ===
 function showScreen(name){
-["menu","gameOver","win"].forEach(id=>{
-document.getElementById(id).classList.add("hidden");
-});
-document.getElementById("ui").classList.add("hidden");
-document.getElementById("touchControls").classList.add("hidden");
+  ["menu","gameOver","win"].forEach(id=>{
+    document.getElementById(id).classList.add("hidden");
+  });
+  document.getElementById("ui").classList.add("hidden");
+  document.getElementById("touchControls").classList.add("hidden");
 
-if(name==="menu") document.getElementById("menu").classList.remove("hidden");
-if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
-if(name==="win") document.getElementById("win").classList.remove("hidden");
-if(name==="playing"){
-document.getElementById("ui").classList.remove("hidden");
-document.getElementById("touchControls").classList.remove("hidden");
-}
+  if(name==="menu") document.getElementById("menu").classList.remove("hidden");
+  if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
+  if(name==="win") document.getElementById("win").classList.remove("hidden");
+  if(name==="playing"){
+    document.getElementById("ui").classList.remove("hidden");
+    document.getElementById("touchControls").classList.remove("hidden");
+  }
 }
 
+// === создать игрока ===
 function createPlayer(){
-return{
-x:canvas.width/2-10,
-y:canvas.height-120,
-vy:0,
-size:20
-};
+  return { x:canvas.width/2-10, y:canvas.height-120, vy:0, size:20 };
 }
 
+// === генерация уровня ===
 function generateLevel(){
-let arr=[];
-let y=canvas.height;
-while(y>-levelHeight){
-let p={
-x:Math.random()*(canvas.width-80),
-y:y,
-width:80,
-height:12,
-type:"normal",
-vx:0,
-broken:false
-};
-let r=Math.random();
-if(r<0.2){p.type="moving";p.vx=2;}
-else if(r<0.35){p.type="break";}
-arr.push(p);
-y-=90+Math.random()*40;
-}
-arr.push({
-x:0,
-y:-levelHeight-100,
-width:canvas.width,
-height:20,
-type:"final"
-});
-return arr;
+  let arr=[], y=canvas.height;
+  while(y>-levelHeight){
+    let p={ x:Math.random()*(canvas.width-80), y:y, width:80, height:12, type:"normal", vx:0, broken:false };
+    let r=Math.random();
+    if(r<0.2){ p.type="moving"; p.vx=2; }
+    else if(r<0.35){ p.type="break"; }
+    arr.push(p);
+    y -= 90 + Math.random()*40;
+  }
+  // финальная платформа во всю ширину
+  arr.push({ x:0, y:-levelHeight-100, width:canvas.width, height:20, type:"final" });
+  return arr;
 }
 
-async function startGame(){
-player=createPlayer();
-platforms=generateLevel();
-particles=[];
-cameraY=0;
-maxHeight=0;
-startTime=Date.now();
-state="playing";
-showScreen("playing");
+// === старт игры ===
+function startGame(){
+  player = createPlayer();
+  platforms = generateLevel();
+  particles = [];
+  cameraY = 0;
+  maxHeight = 0;
+  startTime = Date.now();
+  state = "playing";
+  showScreen("playing");
 
-if(typeof DeviceOrientationEvent!=="undefined"){
-try{
-if(typeof DeviceOrientationEvent.requestPermission==="function"){
-let p=await DeviceOrientationEvent.requestPermission();
-if(p==="granted") useTilt=true;
-}else{
-useTilt=true;
-}
-}catch(e){}
-}
-}
-
-function resetGame(){
-state="menu";
-showScreen("menu");
+  // запрос гироскопа, но не ждём
+  if(typeof DeviceOrientationEvent !== "undefined"){
+    if(typeof DeviceOrientationEvent.requestPermission === "function"){
+      DeviceOrientationEvent.requestPermission().then(r=>{
+        if(r==="granted") useTilt=true;
+      }).catch(e=>console.log("Гироскоп недоступен"));
+    } else { useTilt=true; }
+  }
 }
 
-window.addEventListener("deviceorientation",e=>{
-tiltX=e.gamma/8;
-});
+// === сброс игры ===
+function resetGame(){ state="menu"; showScreen("menu"); }
 
-window.addEventListener("keydown",e=>keys[e.key]=true);
-window.addEventListener("keyup",e=>keys[e.key]=false);
-
+// === события ===
+window.addEventListener("deviceorientation", e=>{ tiltX=e.gamma/8; });
+window.addEventListener("keydown", e=>keys[e.key]=true);
+window.addEventListener("keyup", e=>keys[e.key]=false);
 document.getElementById("leftBtn").ontouchstart=()=>keys["ArrowLeft"]=true;
 document.getElementById("leftBtn").ontouchend=()=>keys["ArrowLeft"]=false;
 document.getElementById("rightBtn").ontouchstart=()=>keys["ArrowRight"]=true;
 document.getElementById("rightBtn").ontouchend=()=>keys["ArrowRight"]=false;
 
+// === частицы ===
 function spawnParticles(x,y,count=6){
-for(let i=0;i<count;i++){
-particles.push({
-x:x,y:y,
-vx:(Math.random()-0.5)*4,
-vy:(Math.random()-1)*4,
-life:25
-});
-}
+  for(let i=0;i<count;i++){
+    particles.push({ x:x, y:y, vx:(Math.random()-0.5)*4, vy:(Math.random()-1)*4, life:25 });
+  }
 }
 
+// === update ===
 function update(){
-if(state!=="playing") return;
+  if(state!=="playing") return;
 
-player.vy+=gravity;
-let prevY=player.y;
-player.y+=player.vy;
+  player.vy += gravity;
+  let prevY = player.y;
+  player.y += player.vy;
 
-let move=0;
-if(useTilt) move=tiltX;
-else{
-if(keys["ArrowLeft"]) move=-1;
-if(keys["ArrowRight"]) move=1;
-}
-player.x+=move*moveSpeed;
+  let move=0;
+  if(useTilt) move=tiltX;
+  else{ if(keys["ArrowLeft"]) move=-1; if(keys["ArrowRight"]) move=1; }
+  player.x += move*moveSpeed;
 
-if(player.x<0) player.x=0;
-if(player.x+player.size>canvas.width) player.x=canvas.width-player.size;
+  if(player.x<0) player.x=0;
+  if(player.x+player.size>canvas.width) player.x=canvas.width-player.size;
 
-for(let p of platforms){
+  for(let p of platforms){
+    if(p.type==="moving"){ p.x+=p.vx; if(p.x<0||p.x+p.width>canvas.width)p.vx*=-1; }
 
-if(p.type==="moving"){
-p.x+=p.vx;
-if(p.x<0||p.x+p.width>canvas.width)p.vx*=-1;
-}
+    if(player.vy>0 &&
+       player.x+player.size>p.x &&
+       player.x<p.x+p.width &&
+       prevY+player.size<=p.y &&
+       player.y+player.size>=p.y){
 
-if(player.vy>0 &&
-player.x+player.size>p.x &&
-player.x<p.x+p.width &&
-prevY+player.size<=p.y &&
-player.y+player.size>=p.y){
+      player.y = p.y - player.size;
 
-player.y=p.y-player.size;
+      if(p.type==="break" && !p.broken){ p.broken=true; spawnParticles(p.x+p.width/2,p.y,10); }
+      else player.vy = jumpForce;
 
-if(p.type==="break"&&!p.broken){
-p.broken=true;
-spawnParticles(p.x+p.width/2,p.y,10);
-}else{
-player.vy=jumpForce;
-spawnParticles(player.x+10,player.y+20);
-}
+      if(p.type==="final"){ state="win"; showScreen("win"); }
+    }
+  }
 
-if(p.type==="final"){
-state="win";
-showScreen("win");
-}
-}
+  if(player.y < cameraY + canvas.height*0.35){ cameraY = player.y - canvas.height*0.35; }
+  if(player.y - cameraY > canvas.height){ state="gameover"; showScreen("gameover"); }
+
+  particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.life--; });
+  particles = particles.filter(p=>p.life>0);
+
+  maxHeight = Math.max(maxHeight,-cameraY);
+  document.getElementById("time").innerText = Math.floor((Date.now()-startTime)/1000);
+  document.getElementById("height").innerText = Math.floor(maxHeight/100);
 }
 
-if(player.y < cameraY + canvas.height*0.35){
-cameraY = player.y - canvas.height*0.35;
-}
-
-if(player.y - cameraY > canvas.height){
-state="gameover";
-showScreen("gameover");
-}
-
-particles.forEach(p=>{
-p.x+=p.vx;
-p.y+=p.vy;
-p.life--;
-});
-particles=particles.filter(p=>p.life>0);
-
-maxHeight=Math.max(maxHeight,-cameraY);
-document.getElementById("time").innerText=
-Math.floor((Date.now()-startTime)/1000);
-document.getElementById("height").innerText=
-Math.floor(maxHeight/100);
-}
-
+// === draw ===
 function drawBackground(){
-let progress=Math.min(-cameraY/levelHeight,1);
-let grad=ctx.createLinearGradient(0,0,0,canvas.height);
-
-if(progress<0.33){
-grad.addColorStop(0,"#ffb6c1");
-grad.addColorStop(1,"#ffc0cb");
-}else if(progress<0.66){
-grad.addColorStop(0,"#b19cd9");
-grad.addColorStop(1,"#8a2be2");
-}else{
-grad.addColorStop(0,"#000010");
-grad.addColorStop(1,"#000000");
-}
-ctx.fillStyle=grad;
-ctx.fillRect(0,0,canvas.width,canvas.height);
+  let progress = Math.min(-cameraY/levelHeight,1);
+  let grad = ctx.createLinearGradient(0,0,0,canvas.height);
+  if(progress<0.33){ grad.addColorStop(0,"#ffb6c1"); grad.addColorStop(1,"#ffc0cb"); }
+  else if(progress<0.66){ grad.addColorStop(0,"#b19cd9"); grad.addColorStop(1,"#8a2be2"); }
+  else{ grad.addColorStop(0,"#000010"); grad.addColorStop(1,"#000000"); }
+  ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
 }
 
 function drawHeart(x,y){
-ctx.fillStyle="red";
-let s=3;
-let px=[[1,0],[2,0],[4,0],[5,0],
-[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
-[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
-[1,3],[2,3],[3,3],[4,3],[5,3],
-[2,4],[3,4],[4,4],
-[3,5]];
-for(let p of px){
-ctx.fillRect(x+p[0]*s,y+p[1]*s,s,s);
-}
+  ctx.fillStyle="red"; let s=3;
+  let px=[[1,0],[2,0],[4,0],[5,0],
+  [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+  [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
+  [1,3],[2,3],[3,3],[4,3],[5,3],
+  [2,4],[3,4],[4,4],
+  [3,5]];
+  for(let p of px){ ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s); }
 }
 
 function draw(){
-drawBackground();
+  drawBackground();
+  ctx.save();
+  ctx.translate(0,-cameraY);
+  for(let p of platforms){
+    if(p.type==="break" && p.broken) continue;
+    if(p.type==="moving") ctx.fillStyle="#00ffcc";
+    else if(p.type==="break") ctx.fillStyle="#ffcc00";
+    else if(p.type==="final") ctx.fillStyle="#00ff00";
+    else ctx.fillStyle="white";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+  }
+  drawHeart(player.x,player.y);
+  ctx.restore();
 
-ctx.save();
-ctx.translate(0,-cameraY);
-
-for(let p of platforms){
-if(p.type==="break"&&p.broken) continue;
-
-if(p.type==="moving") ctx.fillStyle="#00ffcc";
-else if(p.type==="break") ctx.fillStyle="#ffcc00";
-else if(p.type==="final") ctx.fillStyle="#00ff00";
-else ctx.fillStyle="white";
-
-ctx.fillRect(p.x,p.y,p.width,p.height);
+  ctx.fillStyle="red";
+  particles.forEach(p=>{ ctx.fillRect(p.x,p.y-cameraY,3,3); });
 }
 
-drawHeart(player.x,player.y);
-
-ctx.restore();
-
-ctx.fillStyle="red";
-particles.forEach(p=>{
-ctx.fillRect(p.x,p.y-cameraY,3,3);
-});
-}
-
-function loop(){
-update();
-draw();
-requestAnimationFrame(loop);
-}
+// === loop ===
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
 loop();
 </script>
 </body>
