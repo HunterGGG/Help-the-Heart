@@ -79,7 +79,9 @@ let state = "menu";
 let gravity = 0.5;
 let jumpForce = -12;
 let moveSpeed = 5;
-let player, platforms, particles;
+let player = createPlayer();
+let platforms = [];
+let particles = [];
 let cameraY = 0;
 let keys = {};
 let tiltX = 0;
@@ -234,6 +236,11 @@ function drawHeart(x,y){
 
 function draw(){
   drawBackground();
+
+  if(!player){
+    return;
+  }
+
   ctx.save();
   ctx.translate(0,-cameraY);
   for(let p of platforms){
