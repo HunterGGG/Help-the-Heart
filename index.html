@@ -138,7 +138,8 @@ function createRandomPlatform(y){
 
 function generateLevel(mode="story"){
   const arr=[];
-  let y=canvas.height;
+  arr.push({ x:0, y:canvas.height-35, width:canvas.width, height:18, type:"normal", vx:0, broken:false, starter:true });
+  let y=canvas.height-100;
   while(y>-levelHeight){
     arr.push(createRandomPlatform(y));
     y -= 70 + Math.random()*35;
@@ -237,6 +238,7 @@ function update(){
       if(p.type==="break" && !p.broken){
         p.broken=true;
         spawnParticles(p.x+p.width/2,p.y,10);
+        player.vy = jumpForce;
       } else {
         player.vy = jumpForce;
       }
