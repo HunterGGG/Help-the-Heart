@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Help the Heart</title>
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+font-family:monospace;
+background:black;
+}
+canvas{
+display:block;
+}
+#ui{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+z-index:10;
+font-size:14px;
+text-shadow:2px 2px 0px black;
+}
+#menu,#gameOver,#win{
+position:fixed;
+inset:0;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+background:rgba(0,0,0,0.6);
+color:white;
+text-align:center;
+z-index:20;
+}
+button{
+padding:10px 20px;
+margin:10px;
+font-size:16px;
+cursor:pointer;
+}
+.hidden{display:none;}
+#message{
+margin-top:20px;
+max-width:300px;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+<div>⏱ <span id="time">0</span>s</div>
+<div>⬆ <span id="height">0</span>m</div>
+</div>
+
+<div id="menu">
+<h1>Help the Heart ❤️</h1>
+<p>Помоги сердечку добраться до поздравления!</p>
+<button onclick="startGame()">Играть</button>
+<button onclick="enableTilt()">Включить наклон</button>
+</div>
+
+<div id="gameOver" class="hidden">
+<h1>Game Over 💔</h1>
+<button onclick="restart()">Попробовать снова</button>
+</div>
+
+<div id="win" class="hidden">
+<h1>Ты добрался! ❤️</h1>
+<div id="message">
+<!-- ВСТАВЬ СВОЁ ПОЗДРАВЛЕНИЕ ЗДЕСЬ -->
+ТВОЙ ТЕКСТ ПОЗДРАВЛЕНИЯ
+</div>
+<button onclick="restart()">Сыграть снова</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+
+let gravity=0.4;
+let jumpForce=-10;
+let moveSpeed=4;
+let player,platforms,particles;
+let cameraY=0;
+let gameRunning=false;
+let keys={};
+let useTilt=false;
+let tiltX=0;
+let startTime;
+let levelHeight=6000;
+
+function resize(){
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+}
+addEventListener("resize",resize);
+
+function createPlayer(){
+return{
+x:canvas.width/2-8,
+y:canvas.height-50,
+vy:0,
+size:16,
+scale:1
+};
+}
+
+function createPlatforms(){
+let arr=[];
+for(let i=0;i<50;i++){
+arr.push(makePlatform(Math.random()*canvas.width,canvas.height-i*120));
+}
+return arr;
+}
+
+function makePlatform(x,y){
+let type=Math.random();
+let p={
+x:x,
+y:y,
+width:60,
+height:10,
+type:"normal",
+vx:0,
+broken:false
+};
+if(type<0.2){p.type="moving";p.vx=2;}
+else if(type<0.35){p.type="break";}
+return p;
+}
+
+function startGame(){
+document.getElementById("menu").classList.add("hidden");
+document.getElementById("gameOver").classList.add("hidden");
+document.getElementById("win").classList.add("hidden");
+player=createPlayer();
+platforms=createPlatforms();
+particles=[];
+cameraY=0;
+gameRunning=true;
+startTime=Date.now();
+loop();
+}
+
+function restart(){
+location.reload();
+}
+
+function enableTilt(){
+if(typeof DeviceOrientationEvent!=="undefined"&&
+typeof DeviceOrientationEvent.requestPermission==="function"){
+DeviceOrientationEvent.requestPermission().then(response=>{
+if(response==="granted"){
+useTilt=true;
+}
+});
+}else{
+useTilt=true;
+}
+}
+
+window.addEventListener("deviceorientation",e=>{
+tiltX=e.gamma/10;
+});
+
+window.addEventListener("keydown",e=>keys[e.key]=true);
+window.addEventListener("keyup",e=>keys[e.key]=false);
+
+function update(){
+if(!gameRunning)return;
+
+player.vy+=gravity;
+player.y+=player.vy;
+
+let move=0;
+if(useTilt) move=tiltX;
+else{
+if(keys["ArrowLeft"]) move=-1;
+if(keys["ArrowRight"]) move=1;
+}
+player.x+=move*moveSpeed;
+
+if(player.x<0)player.x=canvas.width;
+if(player.x>canvas.width)player.x=0;
+
+for(let p of platforms){
+if(player.vy>0 &&
+player.x+player.size>p.x &&
+player.x<p.x+p.width &&
+player.y+player.size>p.y &&
+player.y+player.size<p.y+p.height+player.vy){
+
+player.vy=jumpForce;
+spawnParticles(player.x+8,player.y+16);
+
+if(p.type==="break"&&!p.broken){
+p.broken=true;
+spawnBreak(p);
+}
+}
+if(p.type==="moving"){
+p.x+=p.vx;
+if(p.x<0||p.x+p.width>canvas.width)p.vx*=-1;
+}
+}
+
+if(player.y<canvas.height/2){
+cameraY+=canvas.height/2-player.y;
+player.y=canvas.height/2;
+}
+
+if(player.y-cameraY>canvas.height){
+gameRunning=false;
+document.getElementById("gameOver").classList.remove("hidden");
+}
+
+if(cameraY>levelHeight){
+gameRunning=false;
+document.getElementById("win").classList.remove("hidden");
+}
+
+particles.forEach(p=>{
+p.y+=p.vy;
+p.x+=p.vx;
+p.life--;
+});
+particles=particles.filter(p=>p.life>0);
+
+document.getElementById("time").innerText=Math.floor((Date.now()-startTime)/1000);
+document.getElementById("height").innerText=Math.floor(cameraY/100);
+}
+
+function spawnParticles(x,y){
+for(let i=0;i<6;i++){
+particles.push({
+x:x,
+y:y,
+vx:(Math.random()-0.5)*4,
+vy:(Math.random()-1)*4,
+life:20
+});
+}
+}
+
+function spawnBreak(p){
+for(let i=0;i<8;i++){
+particles.push({
+x:p.x+Math.random()*p.width,
+y:p.y,
+vx:(Math.random()-0.5)*6,
+vy:Math.random()*3,
+life:30
+});
+}
+}
+
+function drawHeart(x,y,size,scale){
+ctx.fillStyle="red";
+let s=size*scale;
+let px=[[1,0],[2,0],[4,0],[5,0],
+[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
+[1,3],[2,3],[3,3],[4,3],[5,3],
+[2,4],[3,4],[4,4],
+[3,5]];
+for(let p of px){
+ctx.fillRect(x+p[0]*s,y+p[1]*s,s,s);
+}
+}
+
+function drawBackground(){
+let h=cameraY/levelHeight;
+let grad=ctx.createLinearGradient(0,0,0,canvas.height);
+if(h<0.33){
+grad.addColorStop(0,"#ffb6c1");
+grad.addColorStop(1,"#ffc0cb");
+}else if(h<0.66){
+grad.addColorStop(0,"#b19cd9");
+grad.addColorStop(1,"#8a2be2");
+}else{
+grad.addColorStop(0,"#000010");
+grad.addColorStop(1,"#000000");
+}
+ctx.fillStyle=grad;
+ctx.fillRect(0,0,canvas.width,canvas.height);
+
+if(h<0.66){
+ctx.fillStyle="white";
+for(let i=0;i<5;i++){
+ctx.fillRect((i*150+(cameraY*0.2)%300)%canvas.width,50+i*60,60,20);
+}
+}else{
+ctx.fillStyle="white";
+for(let i=0;i<50;i++){
+ctx.fillRect(Math.random()*canvas.width,Math.random()*canvas.height,2,2);
+}
+}
+}
+
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+drawBackground();
+
+ctx.save();
+ctx.translate(0,-cameraY);
+
+for(let p of platforms){
+if(p.type==="break"&&p.broken)continue;
+ctx.fillStyle=p.type==="moving"?"#00ffcc":
+p.type==="break"?"#ffcc00":"#ffffff";
+ctx.fillRect(p.x,p.y,p.width,p.height);
+}
+
+drawHeart(player.x,player.y,2,1+Math.sin(Date.now()/200)*0.1);
+
+ctx.restore();
+
+ctx.fillStyle="red";
+particles.forEach(p=>{
+ctx.fillRect(p.x,p.y-cameraY,3,3);
+});
+}
+
+function loop(){
+update();
+draw();
+if(gameRunning)requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
