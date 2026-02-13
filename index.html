@@ -86,6 +86,7 @@ let moveSpeed = 5;
 let player = createPlayer();
 let platforms = [];
 let particles = [];
+let trail = [];
 let cameraY = 0;
 let keys = {};
 let tiltX = 0;
@@ -171,6 +172,7 @@ function startGame(mode="story"){
   player = createPlayer();
   platforms = generateLevel(mode);
   particles = [];
+  trail = [];
   cameraY = 0;
   maxHeight = 0;
   startTime = Date.now();
@@ -217,6 +219,8 @@ function update(){
   if(player.x+player.size>canvas.width) player.x=canvas.width-player.size;
 
   for(let p of platforms){
+    if(p.type==="break" && p.broken) continue;
+
     if(p.type==="moving"){
       p.x+=p.vx;
       if(p.x<0||p.x+p.width>canvas.width) p.vx*=-1;
@@ -252,6 +256,7 @@ function update(){
   particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.life--; });
   particles = particles.filter(p=>p.life>0);
 
+  updateTrail();
   extendEndlessPlatforms();
 
   maxHeight = Math.max(maxHeight,-cameraY);
@@ -363,11 +368,45 @@ function drawStars(progress){
   ctx.globalAlpha = 1;
 }
 
+
+function updateTrail(){
+  trail.unshift({ x: player.x + player.size/2, y: player.y + player.size/2, life: 1 });
+  if(trail.length>22) trail.length = 22;
+  for(const t of trail) t.life -= 0.045;
+  trail = trail.filter(t=>t.life>0);
+}
+
+function drawTrail(){
+  for(let i=trail.length-1;i>=0;i--){
+    const t = trail[i];
+    const mix = i / Math.max(trail.length-1,1);
+    const color = lerpColor("#3d001a", "#ff6aa8", 1-mix);
+    const size = 4 + Math.floor((1-mix)*6);
+    const px = Math.round(t.x - size/2);
+    const py = Math.round(t.y - size/2);
+    drawPixelRect(px, py, size, size, color, 2);
+  }
+}
+
 function drawHeart(x,y){
-  ctx.fillStyle="red";
   const s=3;
   const px=[[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[4,4],[3,5]];
+  const key = new Set(px.map(p=>`${p[0]},${p[1]}`));
+
+  ctx.fillStyle="#000";
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(const p of px){
+    for(const d of dirs){
+      const nx=p[0]+d[0], ny=p[1]+d[1];
+      if(!key.has(`${nx},${ny}`)) ctx.fillRect(x+nx*s, y+ny*s, s, s);
+    }
+  }
+
+  ctx.fillStyle="#ff1e4d";
   for(let p of px) ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s);
+  ctx.fillStyle="#ff8fab";
+  ctx.fillRect(x+2*s,y+1*s,s,s);
+  ctx.fillRect(x+4*s,y+1*s,s,s);
 }
 
 function drawPlatform(p){
@@ -420,6 +459,7 @@ function draw(){
     if(p.type==="break" && p.broken) continue;
     drawPlatform(p);
   }
+  drawTrail();
   drawHeart(player.x,player.y);
   ctx.restore();
 
