@@ -299,8 +299,8 @@ function resetGame(){
   showScreen("menu");
 }
 
-function openLeaders(){
-  renderLeaders();
+async function openLeaders(){
+  await renderLeaders();
   showScreen("leaders");
 }
 function closeLeaders(){ showScreen("menu"); }
@@ -316,28 +316,40 @@ function confirmAuth(){
   startGame("endless");
 }
 
-function getLeaderboard(){
-  try { return JSON.parse(localStorage.getItem("heart_leaderboard") || "[]"); }
-  catch { return []; }
-}
-function saveLeaderboard(rows){
-  localStorage.setItem("heart_leaderboard", JSON.stringify(rows));
-}
-function submitScore(score){
-  if(!playerProfile) return;
-  const rows = getLeaderboard();
-  const existing = rows.find(r=>r.deviceId===deviceId);
-  if(existing){
-    if(score > existing.score){
-      existing.score = score;
-      existing.nickname = playerProfile.nickname;
-      existing.updatedAt = Date.now();
-    }
-  }else{
-    rows.push({ deviceId, nickname: playerProfile.nickname, score, updatedAt: Date.now() });
+const API_BASE = window.LEADERBOARD_API_BASE || "";
+
+async function getLeaderboard(){
+  try {
+    const res = await fetch(`${API_BASE}/api/leaderboard`);
+    if(!res.ok) throw new Error(`Leaderboard request failed: ${res.status}`);
+    const data = await res.json();
+    return {
+      rows: Array.isArray(data.top) ? data.top : [],
+      totalPlayers: Number.isInteger(data.totalPlayers) ? data.totalPlayers : (Array.isArray(data.top) ? data.top.length : 0),
+    };
+  } catch (err){
+    console.error("Failed to load leaderboard", err);
+    return { rows: [], totalPlayers: 0, error: true };
   }
-  rows.sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
-  saveLeaderboard(rows);
+}
+
+async function submitScore(score){
+  if(!playerProfile) return;
+  try {
+    const payload = { deviceId, nickname: playerProfile.nickname, score };
+    const res = await fetch(`${API_BASE}/api/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if(!res.ok){
+      const text = await res.text();
+      throw new Error(`Score submit failed: ${res.status} ${text}`);
+    }
+    return await res.json();
+  } catch (err){
+    console.error("Failed to submit score", err);
+  }
 }
 
 
@@ -362,23 +374,28 @@ function checkCoinPickup(){
   }
 }
 
-function renderLeaders(){
-  const rows = getLeaderboard().sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
+async function renderLeaders(){
+  const result = await getLeaderboard();
+  const rows = [...result.rows].sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
   const list = document.getElementById("leadersList");
   list.innerHTML = "";
-  rows.slice(0,10).forEach((r,idx)=>{
+
+  rows.slice(0,10).forEach((r)=>{
     const li = document.createElement("li");
     li.textContent = `${r.nickname} — ${r.score}`;
     if(r.deviceId===deviceId) li.style.color = "#6cff8b";
     list.appendChild(li);
   });
+
   if(!rows.length){
     const li = document.createElement("li");
-    li.textContent = "Пока нет рекордов";
+    li.textContent = result.error ? "Не удалось загрузить лидеров" : "Пока нет рекордов";
     list.appendChild(li);
   }
+
+  const total = result.totalPlayers || rows.length;
   const myIdx = rows.findIndex(r=>r.deviceId===deviceId);
-  document.getElementById("myPlace").innerText = myIdx>=0 ? `Твоё место: #${myIdx+1} из ${rows.length}` : `Твоё место: —`;
+  document.getElementById("myPlace").innerText = myIdx>=0 ? `Твоё место: #${myIdx+1} из ${total}` : `Твоё место: —`;
 }
 
 window.addEventListener("deviceorientation", e=>{ tiltX=(e.gamma||0)/10; });
