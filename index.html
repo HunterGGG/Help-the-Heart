@@ -15,25 +15,15 @@ canvas { display:block; image-rendering: pixelated; }
   padding:16px;
 }
 .hidden{display:none !important;}
-button{padding:12px 22px; margin:8px; font-size:16px; cursor:pointer; border-radius:8px; border:1px solid #fff4; background:#1f1f1f; color:#fff;}
-button:hover{background:#2f2f2f;}
+button{padding:12px 22px; margin:8px; font-size:16px; cursor:pointer; border-radius:0; border:2px solid #0f0f0f; background:#2f2f2f; color:#fff; box-shadow: 0 4px 0 #111, inset 0 0 0 2px #666; text-transform:uppercase; letter-spacing:0.5px;}
+button:hover{background:#3a3a3a;}
+button:active{transform:translateY(2px); box-shadow:0 2px 0 #111, inset 0 0 0 2px #777;}
 
 #ui{
   position:fixed; top:10px; left:10px; color:white; font-size:14px;
   z-index:5; text-shadow:2px 2px 0px black;
 }
 
-.controls{
-  position:fixed; bottom:20px; left:0; right:0;
-  display:flex; justify-content:space-between;
-  padding:0 40px; z-index:6;
-}
-.ctrl{
-  width:70px; height:70px; background:rgba(255,255,255,0.2);
-  display:flex; align-items:center; justify-content:center;
-  font-size:30px; color:white; border-radius:10px;
-  user-select:none;
-}
 #message{margin-top:20px; max-width:350px;}
 #menuButtons{display:flex; flex-direction:column; align-items:center;}
 #secretHeartBtn{font-size:24px; width:52px; height:52px; padding:0; line-height:1; border-radius:999px; background:#441125;}
@@ -48,7 +38,7 @@ small{opacity:0.85;}
 
 <div id="ui" class="hidden">
   <div>⏱ <span id="time">0</span>s</div>
-  <div>🧱 <span id="platformsCount">0</span></div>
+  <div>Счет: <span id="platformsCount">0</span></div>
   <div>⬆ <span id="height">0</span>m</div>
   <div id="modeLabel">♾ Endless</div>
 </div>
@@ -94,11 +84,6 @@ small{opacity:0.85;}
   <h1>С Днём Святого Валентина ❤️</h1>
   <div id="message">Поздравляю с 14 февраля, очень сильно тебя люблю!</div>
   <button onclick="resetGame()">Сыграть снова</button>
-</div>
-
-<div class="controls hidden" id="touchControls">
-  <div class="ctrl" id="leftBtn">◀</div>
-  <div class="ctrl" id="rightBtn">▶</div>
 </div>
 
 <canvas id="game"></canvas>
@@ -168,7 +153,6 @@ function saveProfile(nickname){
 function showScreen(name){
   ["menu","gameOver","win","auth","leaders"].forEach(id=>document.getElementById(id).classList.add("hidden"));
   document.getElementById("ui").classList.add("hidden");
-  document.getElementById("touchControls").classList.add("hidden");
 
   if(name==="menu") document.getElementById("menu").classList.remove("hidden");
   if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
@@ -177,7 +161,6 @@ function showScreen(name){
   if(name==="leaders") document.getElementById("leaders").classList.remove("hidden");
   if(name==="playing"){
     document.getElementById("ui").classList.remove("hidden");
-    document.getElementById("touchControls").classList.remove("hidden");
   }
 }
 
@@ -352,10 +335,6 @@ function renderLeaders(){
 window.addEventListener("deviceorientation", e=>{ tiltX=(e.gamma||0)/10; });
 window.addEventListener("keydown", e=>keys[e.key]=true);
 window.addEventListener("keyup", e=>keys[e.key]=false);
-document.getElementById("leftBtn").ontouchstart=()=>keys["ArrowLeft"]=true;
-document.getElementById("leftBtn").ontouchend=()=>keys["ArrowLeft"]=false;
-document.getElementById("rightBtn").ontouchstart=()=>keys["ArrowRight"]=true;
-document.getElementById("rightBtn").ontouchend=()=>keys["ArrowRight"]=false;
 
 function spawnParticles(x,y,count=6){
   for(let i=0;i<count;i++) particles.push({ x, y, vx:(Math.random()-0.5)*3.4, vy:(Math.random()-1)*3.8, life:24 });
@@ -407,12 +386,12 @@ function update(dt60){
       player.y = p.y - player.size;
       markPlatformVisited(p);
 
+      player.vy = physics.jumpForce;
+
       if(p.type==="break"){
         p.broken=true;
         p.brokenUntil = now + 5000;
         spawnParticles(p.x+p.width/2,p.y,10);
-      } else {
-        player.vy = physics.jumpForce;
       }
 
       if(p.type==="final" && gameMode === "valentine"){
@@ -639,13 +618,7 @@ function drawPlatform(p){
     return;
   }
   if(p.type === "break"){
-    if(p.broken){
-      ctx.globalAlpha = 0.34;
-      ctx.fillStyle = "#8f6e47";
-      ctx.fillRect(p.x,p.y,p.width,p.height);
-      ctx.globalAlpha = 1;
-      return;
-    }
+    if(p.broken) return;
     ctx.fillStyle = "#d5a76b";
     ctx.fillRect(p.x,p.y,p.width,p.height);
     ctx.fillStyle = "#8b5e33";
