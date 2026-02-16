@@ -6,15 +6,17 @@
 <title>Help the Heart ❤️</title>
 <style>
 html, body { margin:0; padding:0; overflow:hidden; font-family:monospace; background:black; }
-canvas { display:block; }
+canvas { display:block; image-rendering: pixelated; }
 
 .overlay{
   position:fixed; inset:0; display:flex; flex-direction:column;
   justify-content:center; align-items:center;
-  background:rgba(0,0,0,0.65); color:white; text-align:center; z-index:10;
+  background:rgba(0,0,0,0.72); color:white; text-align:center; z-index:10;
+  padding:16px;
 }
-.hidden{display:none;}
-button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
+.hidden{display:none !important;}
+button{padding:12px 22px; margin:8px; font-size:16px; cursor:pointer; border-radius:8px; border:1px solid #fff4; background:#1f1f1f; color:#fff;}
+button:hover{background:#2f2f2f;}
 
 #ui{
   position:fixed; top:10px; left:10px; color:white; font-size:14px;
@@ -30,31 +32,67 @@ button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
   width:70px; height:70px; background:rgba(255,255,255,0.2);
   display:flex; align-items:center; justify-content:center;
   font-size:30px; color:white; border-radius:10px;
+  user-select:none;
 }
-#message{margin-top:20px; max-width:300px;}
+#message{margin-top:20px; max-width:350px;}
+#menuButtons{display:flex; flex-direction:column; align-items:center;}
+#secretHeartBtn{font-size:24px; width:52px; height:52px; padding:0; line-height:1; border-radius:999px; background:#441125;}
+#leadersContent{max-width:520px; width:min(90vw,520px); background:#111; border:1px solid #fff3; padding:12px; border-radius:10px; text-align:left;}
+#leadersList{margin:10px 0; padding-left:20px;}
+#authBox{background:#111; border:1px solid #fff3; border-radius:10px; padding:14px; width:min(90vw,360px);}
+input{width:100%; padding:10px; border-radius:8px; border:1px solid #fff4; background:#1c1c1c; color:#fff; font-size:15px; box-sizing:border-box;}
+small{opacity:0.85;}
 </style>
 </head>
 <body>
 
 <div id="ui" class="hidden">
   <div>⏱ <span id="time">0</span>s</div>
+  <div>🧱 <span id="platformsCount">0</span></div>
   <div>⬆ <span id="height">0</span>m</div>
+  <div id="modeLabel">♾ Endless</div>
 </div>
 
 <div id="menu" class="overlay">
   <h1>Help the Heart ❤️</h1>
-  <p>Помоги сердечку добраться до поздравления!</p>
-  <button onclick="startGame()">Играть</button>
+  <p>Прыгай вверх и ставь рекорды!</p>
+  <div id="menuButtons">
+    <button onclick="startEndless()">Старт</button>
+    <button onclick="openLeaders()">Лидеры</button>
+    <button id="secretHeartBtn" onclick="secretHeartTap()">❤️</button>
+  </div>
+</div>
+
+<div id="auth" class="overlay hidden">
+  <div id="authBox">
+    <h2>Никнейм</h2>
+    <p>Нужен для таблицы рекордов</p>
+    <input id="nickInput" maxlength="18" placeholder="Например: SweetHeart" />
+    <div style="margin-top:10px;">
+      <button onclick="confirmAuth()">Продолжить</button>
+      <button onclick="closeAuth()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="leaders" class="overlay hidden">
+  <div id="leadersContent">
+    <h2>Топ 10 лидеров</h2>
+    <ol id="leadersList"></ol>
+    <div id="myPlace">Твоё место: —</div>
+    <div style="margin-top:10px;"><button onclick="closeLeaders()">Закрыть</button></div>
+  </div>
 </div>
 
 <div id="gameOver" class="overlay hidden">
   <h1>Game Over 💔</h1>
+  <div>Твой результат: <span id="finalScore">0</span></div>
   <button onclick="resetGame()">Сыграть снова</button>
 </div>
 
 <div id="win" class="overlay hidden">
-  <h1>Ты добрался! ❤️</h1>
-  <div id="message">ТВОЙ ТЕКСТ ПОЗДРАВЛЕНИЯ</div>
+  <h1>С Днём Святого Валентина ❤️</h1>
+  <div id="message">Поздравляю с 14 февраля, очень сильно тебя люблю!</div>
   <button onclick="resetGame()">Сыграть снова</button>
 </div>
 
@@ -69,89 +107,249 @@ button{padding:12px 22px; margin:10px; font-size:16px; cursor:pointer;}
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-// === resize canvas ===
 function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
 resize();
 window.addEventListener("resize", resize);
 
-// === глобальные переменные ===
 let state = "menu";
-let gravity = 0.5;
-let jumpForce = -12;
-let moveSpeed = 5;
-let player, platforms, particles;
+let gameMode = "endless";
+
+const physics = {
+  gravity: 0.42,
+  jumpForce: -10.8,
+  moveSpeed: 3.2,
+  maxDt60: 1.5,
+};
+
+let player = createPlayer();
+let platforms = [];
+let particles = [];
+let trail = [];
 let cameraY = 0;
 let keys = {};
 let tiltX = 0;
 let useTilt = false;
 let startTime = 0;
-let levelHeight = 2000;
 let maxHeight = 0;
+let generatedTopY = 0;
+let nextPlatformId = 1;
+let visitedPlatforms = new Set();
+let scorePlatforms = 0;
+let lastFrame = performance.now();
+let secretTaps = 0;
 
-// === helper: показать экран ===
+const deviceId = ensureDeviceId();
+let playerProfile = getProfile();
+
+function ensureDeviceId(){
+  let id = localStorage.getItem("heart_device_id");
+  if(!id){
+    id = (crypto?.randomUUID?.() || `device_${Math.random().toString(36).slice(2)}`);
+    localStorage.setItem("heart_device_id", id);
+  }
+  return id;
+}
+
+function getProfile(){
+  const raw = localStorage.getItem("heart_profile");
+  if(!raw) return null;
+  try {
+    const p = JSON.parse(raw);
+    if(p?.deviceId === deviceId && p?.nickname) return p;
+  } catch {}
+  return null;
+}
+
+function saveProfile(nickname){
+  playerProfile = { deviceId, nickname: nickname.trim() };
+  localStorage.setItem("heart_profile", JSON.stringify(playerProfile));
+}
+
 function showScreen(name){
-  ["menu","gameOver","win"].forEach(id=>{
-    document.getElementById(id).classList.add("hidden");
-  });
+  ["menu","gameOver","win","auth","leaders"].forEach(id=>document.getElementById(id).classList.add("hidden"));
   document.getElementById("ui").classList.add("hidden");
   document.getElementById("touchControls").classList.add("hidden");
 
   if(name==="menu") document.getElementById("menu").classList.remove("hidden");
   if(name==="gameover") document.getElementById("gameOver").classList.remove("hidden");
   if(name==="win") document.getElementById("win").classList.remove("hidden");
+  if(name==="auth") document.getElementById("auth").classList.remove("hidden");
+  if(name==="leaders") document.getElementById("leaders").classList.remove("hidden");
   if(name==="playing"){
     document.getElementById("ui").classList.remove("hidden");
     document.getElementById("touchControls").classList.remove("hidden");
   }
 }
 
-// === создать игрока ===
 function createPlayer(){
   return { x:canvas.width/2-10, y:canvas.height-120, vy:0, size:20 };
 }
 
-// === генерация уровня ===
-function generateLevel(){
-  let arr=[], y=canvas.height;
-  while(y>-levelHeight){
-    let p={ x:Math.random()*(canvas.width-80), y:y, width:80, height:12, type:"normal", vx:0, broken:false };
-    let r=Math.random();
-    if(r<0.2){ p.type="moving"; p.vx=2; }
-    else if(r<0.35){ p.type="break"; }
-    arr.push(p);
-    y -= 90 + Math.random()*40;
+function createRandomPlatform(y){
+  const p = {
+    id: nextPlatformId++,
+    x:Math.random()*(canvas.width-96),
+    y,
+    width:96,
+    height:14,
+    type:"normal",
+    vx:0,
+    broken:false,
+    brokenUntil:0,
+  };
+  const r=Math.random();
+  if(r<0.11){ p.type="moving"; p.vx=1.2 + Math.random()*1.0; }
+  else if(r<0.20){ p.type="break"; }
+  return p;
+}
+
+function generateLevel(mode="endless"){
+  const arr=[];
+  let y=canvas.height;
+  const minGap = 88;
+  const maxGap = 115;
+
+  const starter = { id: nextPlatformId++, x: canvas.width/2-62, y: canvas.height-70, width:124, height:14, type:"normal", vx:0, broken:false, brokenUntil:0 };
+  arr.push(starter);
+
+  while(y>-2000){
+    y -= minGap + Math.random()*(maxGap-minGap);
+    arr.push(createRandomPlatform(y));
   }
-  // финальная платформа во всю ширину
-  arr.push({ x:0, y:-levelHeight-100, width:canvas.width, height:20, type:"final" });
+
+  if(mode === "valentine"){
+    const finalY = -2080;
+    arr.push({ id: nextPlatformId++, x:canvas.width/2-60, y:finalY+90, width:120, height:14, type:"moving", vx:1.8, broken:false, brokenUntil:0 });
+    arr.push({ id: nextPlatformId++, x:0, y:finalY, width:canvas.width, height:20, type:"final", vx:0, broken:false, brokenUntil:0 });
+    generatedTopY = finalY;
+  }else{
+    generatedTopY = y;
+  }
+
   return arr;
 }
 
-// === старт игры ===
-function startGame(){
-  player = createPlayer();
-  platforms = generateLevel();
-  particles = [];
-  cameraY = 0;
-  maxHeight = 0;
-  startTime = Date.now();
-  state = "playing";
-  showScreen("playing");
+function extendEndlessPlatforms(){
+  if(gameMode !== "endless") return;
 
-  // запрос гироскопа, но не ждём
-  if(typeof DeviceOrientationEvent !== "undefined"){
-    if(typeof DeviceOrientationEvent.requestPermission === "function"){
-      DeviceOrientationEvent.requestPermission().then(r=>{
-        if(r==="granted") useTilt=true;
-      }).catch(e=>console.log("Гироскоп недоступен"));
-    } else { useTilt=true; }
+  while(generatedTopY > cameraY - canvas.height*2.3){
+    generatedTopY -= 90 + Math.random()*24;
+    platforms.push(createRandomPlatform(generatedTopY));
+  }
+
+  const keepFromY = cameraY - 260;
+  const keepToY = cameraY + canvas.height + 260;
+  platforms = platforms.filter(p => p.y > keepFromY && p.y < keepToY);
+}
+
+function startEndless(){
+  if(!playerProfile){
+    document.getElementById("nickInput").value = "";
+    showScreen("auth");
+    return;
+  }
+  startGame("endless");
+}
+
+function secretHeartTap(){
+  secretTaps += 1;
+  if(secretTaps >= 14){
+    secretTaps = 0;
+    startGame("valentine");
   }
 }
 
-// === сброс игры ===
-function resetGame(){ state="menu"; showScreen("menu"); }
+function startGame(mode="endless"){
+  gameMode = mode;
+  player = createPlayer();
+  platforms = generateLevel(mode);
+  particles = [];
+  trail = [];
+  cameraY = 0;
+  maxHeight = 0;
+  startTime = Date.now();
+  visitedPlatforms = new Set();
+  scorePlatforms = 0;
+  state = "playing";
+  document.getElementById("modeLabel").innerText = mode === "endless" ? "♾ Endless" : "❤️ Secret";
+  updateHud();
+  showScreen("playing");
 
-// === события ===
-window.addEventListener("deviceorientation", e=>{ tiltX=e.gamma/8; });
+  if(typeof DeviceOrientationEvent !== "undefined"){
+    if(typeof DeviceOrientationEvent.requestPermission === "function"){
+      DeviceOrientationEvent.requestPermission().then(r=>{ if(r==="granted") useTilt=true; }).catch(()=>{});
+    } else {
+      useTilt=true;
+    }
+  }
+}
+
+function resetGame(){
+  state="menu";
+  showScreen("menu");
+}
+
+function openLeaders(){
+  renderLeaders();
+  showScreen("leaders");
+}
+function closeLeaders(){ showScreen("menu"); }
+function closeAuth(){ showScreen("menu"); }
+
+function confirmAuth(){
+  const nick = document.getElementById("nickInput").value.trim();
+  if(nick.length < 2){
+    alert("Никнейм должен быть минимум 2 символа");
+    return;
+  }
+  saveProfile(nick.slice(0,18));
+  startGame("endless");
+}
+
+function getLeaderboard(){
+  try { return JSON.parse(localStorage.getItem("heart_leaderboard") || "[]"); }
+  catch { return []; }
+}
+function saveLeaderboard(rows){
+  localStorage.setItem("heart_leaderboard", JSON.stringify(rows));
+}
+function submitScore(score){
+  if(!playerProfile) return;
+  const rows = getLeaderboard();
+  const existing = rows.find(r=>r.deviceId===deviceId);
+  if(existing){
+    if(score > existing.score){
+      existing.score = score;
+      existing.nickname = playerProfile.nickname;
+      existing.updatedAt = Date.now();
+    }
+  }else{
+    rows.push({ deviceId, nickname: playerProfile.nickname, score, updatedAt: Date.now() });
+  }
+  rows.sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
+  saveLeaderboard(rows);
+}
+
+function renderLeaders(){
+  const rows = getLeaderboard().sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
+  const list = document.getElementById("leadersList");
+  list.innerHTML = "";
+  rows.slice(0,10).forEach((r,idx)=>{
+    const li = document.createElement("li");
+    li.textContent = `${r.nickname} — ${r.score}`;
+    if(r.deviceId===deviceId) li.style.color = "#6cff8b";
+    list.appendChild(li);
+  });
+  if(!rows.length){
+    const li = document.createElement("li");
+    li.textContent = "Пока нет рекордов";
+    list.appendChild(li);
+  }
+  const myIdx = rows.findIndex(r=>r.deviceId===deviceId);
+  document.getElementById("myPlace").innerText = myIdx>=0 ? `Твоё место: #${myIdx+1} из ${rows.length}` : `Твоё место: —`;
+}
+
+window.addEventListener("deviceorientation", e=>{ tiltX=(e.gamma||0)/10; });
 window.addEventListener("keydown", e=>keys[e.key]=true);
 window.addEventListener("keyup", e=>keys[e.key]=false);
 document.getElementById("leftBtn").ontouchstart=()=>keys["ArrowLeft"]=true;
@@ -159,101 +357,340 @@ document.getElementById("leftBtn").ontouchend=()=>keys["ArrowLeft"]=false;
 document.getElementById("rightBtn").ontouchstart=()=>keys["ArrowRight"]=true;
 document.getElementById("rightBtn").ontouchend=()=>keys["ArrowRight"]=false;
 
-// === частицы ===
 function spawnParticles(x,y,count=6){
-  for(let i=0;i<count;i++){
-    particles.push({ x:x, y:y, vx:(Math.random()-0.5)*4, vy:(Math.random()-1)*4, life:25 });
-  }
+  for(let i=0;i<count;i++) particles.push({ x, y, vx:(Math.random()-0.5)*3.4, vy:(Math.random()-1)*3.8, life:24 });
 }
 
-// === update ===
-function update(){
+function markPlatformVisited(p){
+  if(visitedPlatforms.has(p.id)) return;
+  visitedPlatforms.add(p.id);
+  scorePlatforms += 1;
+}
+
+function update(dt60){
   if(state!=="playing") return;
 
-  player.vy += gravity;
-  let prevY = player.y;
-  player.y += player.vy;
+  const now = Date.now();
+
+  for(const p of platforms){
+    if(p.type === "break" && p.broken && now >= p.brokenUntil) p.broken = false;
+  }
+
+  player.vy += physics.gravity * dt60;
+  const prevY = player.y;
+  player.y += player.vy * dt60;
 
   let move=0;
-  if(useTilt) move=tiltX;
-  else{ if(keys["ArrowLeft"]) move=-1; if(keys["ArrowRight"]) move=1; }
-  player.x += move*moveSpeed;
+  if(useTilt) move = Math.max(-1,Math.min(1,tiltX));
+  else {
+    if(keys["ArrowLeft"]) move=-1;
+    if(keys["ArrowRight"]) move=1;
+  }
+  player.x += move * physics.moveSpeed * dt60;
 
   if(player.x<0) player.x=0;
   if(player.x+player.size>canvas.width) player.x=canvas.width-player.size;
 
-  for(let p of platforms){
-    if(p.type==="moving"){ p.x+=p.vx; if(p.x<0||p.x+p.width>canvas.width)p.vx*=-1; }
+  for(const p of platforms){
+    const breakInactive = p.type==="break" && p.broken;
+    if(breakInactive) continue;
+
+    if(p.type==="moving"){
+      p.x += p.vx * dt60;
+      if(p.x<0 || p.x+p.width>canvas.width) p.vx*=-1;
+    }
 
     if(player.vy>0 &&
-       player.x+player.size>p.x &&
-       player.x<p.x+p.width &&
-       prevY+player.size<=p.y &&
-       player.y+player.size>=p.y){
+      player.x+player.size>p.x && player.x<p.x+p.width &&
+      prevY+player.size<=p.y && player.y+player.size>=p.y){
 
       player.y = p.y - player.size;
+      markPlatformVisited(p);
 
-      if(p.type==="break" && !p.broken){ p.broken=true; spawnParticles(p.x+p.width/2,p.y,10); }
-      else player.vy = jumpForce;
+      if(p.type==="break"){
+        p.broken=true;
+        p.brokenUntil = now + 5000;
+        spawnParticles(p.x+p.width/2,p.y,10);
+      } else {
+        player.vy = physics.jumpForce;
+      }
 
-      if(p.type==="final"){ state="win"; showScreen("win"); }
+      if(p.type==="final" && gameMode === "valentine"){
+        state="win";
+        showScreen("win");
+      }
     }
   }
 
-  if(player.y < cameraY + canvas.height*0.35){ cameraY = player.y - canvas.height*0.35; }
-  if(player.y - cameraY > canvas.height){ state="gameover"; showScreen("gameover"); }
+  if(player.y < cameraY + canvas.height*0.35) cameraY = player.y - canvas.height*0.35;
 
-  particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.life--; });
+  if(player.y - cameraY > canvas.height){
+    if(gameMode === "endless") submitScore(scorePlatforms);
+    document.getElementById("finalScore").innerText = scorePlatforms;
+    state="gameover";
+    showScreen("gameover");
+  }
+
+  particles.forEach(p=>{ p.x+=p.vx*dt60; p.y+=p.vy*dt60; p.life-=dt60; });
   particles = particles.filter(p=>p.life>0);
 
-  maxHeight = Math.max(maxHeight,-cameraY);
-  document.getElementById("time").innerText = Math.floor((Date.now()-startTime)/1000);
-  document.getElementById("height").innerText = Math.floor(maxHeight/100);
+  updateTrail(dt60);
+  extendEndlessPlatforms();
+
+  maxHeight = Math.max(maxHeight, -cameraY);
+  updateHud();
 }
 
-// === draw ===
+function updateHud(){
+  document.getElementById("time").innerText = Math.floor((Date.now()-startTime)/1000);
+  document.getElementById("height").innerText = Math.floor(maxHeight/100);
+  document.getElementById("platformsCount").innerText = scorePlatforms;
+}
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpColor(c1, c2, t){
+  const a = c1.match(/\w\w/g).map(h=>parseInt(h,16));
+  const b = c2.match(/\w\w/g).map(h=>parseInt(h,16));
+  const r = Math.round(lerp(a[0], b[0], t)).toString(16).padStart(2,'0');
+  const g = Math.round(lerp(a[1], b[1], t)).toString(16).padStart(2,'0');
+  const bl = Math.round(lerp(a[2], b[2], t)).toString(16).padStart(2,'0');
+  return `#${r}${g}${bl}`;
+}
+function drawPixelRect(x,y,w,h,color,size=4){
+  ctx.fillStyle = color;
+  for(let yy=0; yy<h; yy+=size) for(let xx=0; xx<w; xx+=size) ctx.fillRect(x+xx,y+yy,size,size);
+}
+
+function getPlanetNameByHeight(m){
+  if(m<100) return null;
+  const idx = Math.floor((m-100)/100);
+  const names = ["Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune","Pluto"];
+  return names[Math.min(idx, names.length-1)];
+}
+
+function drawPlanet(name, x, y, r){
+  if(!name) return;
+  const palettes = {
+    Moon:["#9da3ad","#c7ccd4","#7b828f"],
+    Mercury:["#9a8e82","#b5a79a","#6c635b"],
+    Venus:["#e3c488","#f0dbaf","#b99658"],
+    Mars:["#b34a36","#d16d52","#7f2f22"],
+    Jupiter:["#c7a178","#e6c9a8","#a1744a"],
+    Saturn:["#bea077","#dcc4a0","#8e7252"],
+    Uranus:["#7bc6cc","#9de0e4","#4a9096"],
+    Neptune:["#3b69c6","#6b90df","#223f86"],
+    Pluto:["#8a7f77","#b0a59d","#5d544d"],
+  };
+  const c = palettes[name] || palettes.Pluto;
+  drawPixelRect(x-r, y-r, r*2, r*2, c[0], 4);
+  drawPixelRect(x-r+8, y-r+6, r, r, c[1], 4);
+  drawPixelRect(x-r+2, y+r/3, r+4, 6, c[2], 2);
+  if(name==="Saturn"){
+    ctx.fillStyle = "#d8c4a1";
+    ctx.fillRect(x-r-8, y-2, r*2+16, 4);
+  }
+}
+
 function drawBackground(){
-  let progress = Math.min(-cameraY/levelHeight,1);
-  let grad = ctx.createLinearGradient(0,0,0,canvas.height);
-  if(progress<0.33){ grad.addColorStop(0,"#ffb6c1"); grad.addColorStop(1,"#ffc0cb"); }
-  else if(progress<0.66){ grad.addColorStop(0,"#b19cd9"); grad.addColorStop(1,"#8a2be2"); }
-  else{ grad.addColorStop(0,"#000010"); grad.addColorStop(1,"#000000"); }
-  ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const progress = Math.min(Math.max(-cameraY/2200,0),1);
+
+  const cA1 = "#ffb6c1", cA2 = "#ffc0cb";
+  const cB1 = "#b6a8ff", cB2 = "#6f56d9";
+  const cC1 = "#060a1a", cC2 = "#000000";
+
+  const t = progress < 0.5 ? progress*2 : (progress-0.5)*2;
+  const top = progress < 0.5 ? lerpColor(cA1,cB1,t) : lerpColor(cB1,cC1,t);
+  const bottom = progress < 0.5 ? lerpColor(cA2,cB2,t) : lerpColor(cB2,cC2,t);
+
+  const grad = ctx.createLinearGradient(0,0,0,canvas.height);
+  grad.addColorStop(0,top);
+  grad.addColorStop(1,bottom);
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  drawMountainsAndTrees(progress);
+  drawClouds(progress);
+  drawStars(progress);
+
+  if(progress > 0.45){
+    const heightMeters = Math.floor(maxHeight/100);
+    const planetName = getPlanetNameByHeight(heightMeters);
+    const cycle = (heightMeters % 100) / 100;
+    const px = canvas.width - 120 + Math.sin(Date.now()/2200)*18;
+    const py = 120 + cycle*14;
+    drawPlanet(planetName, px, py, 40);
+  }
+}
+
+function drawMountainsAndTrees(progress){
+  const alpha = Math.max(0, 1 - progress*1.45);
+  if(alpha<=0) return;
+  ctx.globalAlpha = alpha;
+
+  const baseY = canvas.height - 80;
+  for(let i=0;i<8;i++){
+    const w=136, h=56 + (i%3)*20;
+    const x=i*120 - ((-cameraY*0.12)%120);
+    ctx.fillStyle = i%2 ? "#4f375f" : "#6b4b7d";
+    ctx.beginPath();
+    ctx.moveTo(x, baseY); ctx.lineTo(x+w/2, baseY-h); ctx.lineTo(x+w, baseY); ctx.closePath(); ctx.fill();
+  }
+
+  for(let i=0;i<17;i++){
+    const tx = i*80 - ((-cameraY*0.22)%80);
+    const ty = canvas.height - 72 + (i%3)*2;
+    drawPixelRect(tx+10, ty, 6, 14, "#4b2d1e", 2);
+    ctx.fillStyle = "#2fb55b";
+    ctx.fillRect(tx, ty-8, 26, 10);
+    ctx.fillRect(tx+4, ty-14, 18, 8);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawClouds(progress){
+  const alpha = 1 - Math.abs(progress-0.45)*3;
+  if(alpha<=0) return;
+  ctx.globalAlpha = Math.max(0, Math.min(alpha,0.5));
+
+  for(let i=0;i<8;i++){
+    const x = (i*170 + (-cameraY*0.19)) % (canvas.width + 260) - 130;
+    const y = 80 + (i%3)*60;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(x, y, 70, 16);
+    ctx.fillRect(x+10, y-8, 38, 8);
+    ctx.fillRect(x+18, y+16, 28, 6);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawStars(progress){
+  const alpha = Math.max(0, (progress-0.5)*2.2);
+  if(alpha<=0) return;
+  ctx.globalAlpha = Math.min(alpha, 1);
+
+  for(let i=0;i<90;i++){
+    const x = (i*97)%canvas.width;
+    const y = (i*53 + Math.floor(-cameraY*0.08))%canvas.height;
+    const twinkle = ((Date.now()/220 + i*7)%12)<6 ? 2 : 1;
+    ctx.fillStyle = i%5===0 ? "#ffd47a" : "#ffffff";
+    ctx.fillRect(x, y, twinkle, twinkle);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function updateTrail(dt60){
+  trail.unshift({ x: player.x + player.size/2, y: player.y + player.size/2, life: 1 });
+  if(trail.length>24) trail.length = 24;
+  for(const t of trail) t.life -= 0.04 * dt60;
+  trail = trail.filter(t=>t.life>0);
+}
+
+function drawTrail(){
+  for(let i=trail.length-1;i>=0;i--){
+    const t = trail[i];
+    const mix = i / Math.max(trail.length-1,1);
+    const color = lerpColor("#2c0016", "#ff6aa8", 1-mix);
+    const size = 4 + Math.floor((1-mix)*7);
+    drawPixelRect(Math.round(t.x-size/2), Math.round(t.y-size/2), size, size, color, 2);
+  }
 }
 
 function drawHeart(x,y){
-  ctx.fillStyle="red"; let s=3;
-  let px=[[1,0],[2,0],[4,0],[5,0],
-  [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
-  [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
-  [1,3],[2,3],[3,3],[4,3],[5,3],
-  [2,4],[3,4],[4,4],
-  [3,5]];
-  for(let p of px){ ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s); }
+  const s=3;
+  const px=[[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[4,4],[3,5]];
+  const key = new Set(px.map(p=>`${p[0]},${p[1]}`));
+  ctx.fillStyle="#000";
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(const p of px){
+    for(const d of dirs){
+      const nx=p[0]+d[0], ny=p[1]+d[1];
+      if(!key.has(`${nx},${ny}`)) ctx.fillRect(x+nx*s, y+ny*s, s, s);
+    }
+  }
+  ctx.fillStyle="#ff1e4d";
+  for(const p of px) ctx.fillRect(x+p[0]*s, y+p[1]*s, s, s);
+  ctx.fillStyle="#ff8fab";
+  ctx.fillRect(x+2*s,y+1*s,s,s);
+  ctx.fillRect(x+4*s,y+1*s,s,s);
+}
+
+function drawPlatform(p){
+  if(p.type === "normal"){
+    ctx.fillStyle = "#f8fbff";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#d0d6f4";
+    for(let i=0;i<p.width;i+=8) ctx.fillRect(p.x+i,p.y+2,4,2);
+    ctx.fillStyle = "#a9b2dc";
+    ctx.fillRect(p.x+2,p.y+p.height-3,p.width-4,2);
+    return;
+  }
+  if(p.type === "moving"){
+    ctx.fillStyle = "#06f2dc";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#9dfff3";
+    for(let i=0;i<p.width;i+=10) ctx.fillRect(p.x+i,p.y+2,5,2);
+    ctx.fillStyle = "#0e7a73";
+    ctx.fillRect(p.x+2,p.y+p.height-3,p.width-4,2);
+    ctx.fillStyle = "#023f3c";
+    ctx.fillRect(p.x+6,p.y+5,p.width-12,2);
+    return;
+  }
+  if(p.type === "break"){
+    if(p.broken){
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = "#8f6e47";
+      ctx.fillRect(p.x,p.y,p.width,p.height);
+      ctx.globalAlpha = 1;
+      return;
+    }
+    ctx.fillStyle = "#d5a76b";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle = "#8b5e33";
+    for(let i=6;i<p.width-6;i+=14){
+      ctx.fillRect(p.x+i,p.y+2,2,4);
+      ctx.fillRect(p.x+i-2,p.y+5,6,2);
+    }
+    ctx.fillRect(p.x+10,p.y+8,14,2);
+    ctx.fillRect(p.x+p.width-26,p.y+4,14,2);
+    return;
+  }
+  if(p.type === "final"){
+    ctx.fillStyle="#22ff77";
+    ctx.fillRect(p.x,p.y,p.width,p.height);
+    ctx.fillStyle="#c6ffd6";
+    for(let i=0;i<p.width;i+=18) ctx.fillRect(p.x+i,p.y+3,10,3);
+  }
 }
 
 function draw(){
   drawBackground();
+  if(!player) return;
+
   ctx.save();
   ctx.translate(0,-cameraY);
-  for(let p of platforms){
-    if(p.type==="break" && p.broken) continue;
-    if(p.type==="moving") ctx.fillStyle="#00ffcc";
-    else if(p.type==="break") ctx.fillStyle="#ffcc00";
-    else if(p.type==="final") ctx.fillStyle="#00ff00";
-    else ctx.fillStyle="white";
-    ctx.fillRect(p.x,p.y,p.width,p.height);
-  }
+  for(const p of platforms) drawPlatform(p);
+  drawTrail();
   drawHeart(player.x,player.y);
   ctx.restore();
 
   ctx.fillStyle="red";
-  particles.forEach(p=>{ ctx.fillRect(p.x,p.y-cameraY,3,3); });
+  particles.forEach(p=>ctx.fillRect(p.x,p.y-cameraY,3,3));
 }
 
-// === loop ===
-function loop(){ update(); draw(); requestAnimationFrame(loop); }
-loop();
+function loop(ts){
+  const dtMs = Math.min(50, ts - lastFrame || 16.67);
+  lastFrame = ts;
+  const dt60 = Math.min(physics.maxDt60, dtMs / (1000/60));
+  update(dt60);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+showScreen("menu");
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
