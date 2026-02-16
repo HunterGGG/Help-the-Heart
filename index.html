@@ -51,6 +51,7 @@ small{opacity:0.85;}
     <button onclick="openLeaders()">Лидеры</button>
     <button id="secretHeartBtn" onclick="secretHeartTap()">❤️</button>
   </div>
+  <small style="margin-top:8px; max-width:420px;">Для более комфортной игры, рекомендуем отключить функцию автоповорота экрана на вашем устройстве.</small>
 </div>
 
 <div id="auth" class="overlay hidden">
@@ -118,6 +119,7 @@ let startTime = 0;
 let maxHeight = 0;
 let generatedTopY = 0;
 let nextPlatformId = 1;
+let lastGeneratedX = null;
 let visitedPlatforms = new Set();
 let scorePlatforms = 0;
 let lastFrame = performance.now();
@@ -168,18 +170,32 @@ function createPlayer(){
   return { x:canvas.width/2-10, y:canvas.height-120, vy:0, size:20 };
 }
 
-function createRandomPlatform(y){
+function createRandomPlatform(y, prevX = null){
+  const width = 96;
+  const margin = 10;
+  const minX = margin;
+  const maxX = Math.max(minX, canvas.width - width - margin);
+  const baseX = prevX ?? (lastGeneratedX ?? canvas.width/2 - width/2);
+  const maxHorizontalStep = 145;
+
+  const localMin = Math.max(minX, baseX - maxHorizontalStep);
+  const localMax = Math.min(maxX, baseX + maxHorizontalStep);
+  const x = localMin + Math.random() * Math.max(1, (localMax - localMin));
+
   const p = {
     id: nextPlatformId++,
-    x:Math.random()*(canvas.width-96),
+    x,
     y,
-    width:96,
+    width,
     height:14,
     type:"normal",
     vx:0,
     broken:false,
     brokenUntil:0,
   };
+
+  lastGeneratedX = x;
+
   const r=Math.random();
   if(r<0.11){ p.type="moving"; p.vx=1.2 + Math.random()*1.0; }
   else if(r<0.20){ p.type="break"; }
@@ -190,18 +206,19 @@ function generateLevel(mode="endless"){
   const arr=[];
   let y=canvas.height;
   const minGap = 88;
-  const maxGap = 115;
+  const maxGap = 112;
 
-  const starter = { id: nextPlatformId++, x: canvas.width/2-62, y: canvas.height-70, width:124, height:14, type:"normal", vx:0, broken:false, brokenUntil:0 };
+  const starter = { id: nextPlatformId++, x: 0, y: canvas.height-18, width:canvas.width, height:18, type:"normal", vx:0, broken:false, brokenUntil:0 };
   arr.push(starter);
+  lastGeneratedX = canvas.width/2 - 48;
 
-  while(y>-2000){
+  while(y>-2200){
     y -= minGap + Math.random()*(maxGap-minGap);
-    arr.push(createRandomPlatform(y));
+    arr.push(createRandomPlatform(y, lastGeneratedX));
   }
 
   if(mode === "valentine"){
-    const finalY = -2080;
+    const finalY = -2280;
     arr.push({ id: nextPlatformId++, x:canvas.width/2-60, y:finalY+90, width:120, height:14, type:"moving", vx:1.8, broken:false, brokenUntil:0 });
     arr.push({ id: nextPlatformId++, x:0, y:finalY, width:canvas.width, height:20, type:"final", vx:0, broken:false, brokenUntil:0 });
     generatedTopY = finalY;
@@ -215,14 +232,14 @@ function generateLevel(mode="endless"){
 function extendEndlessPlatforms(){
   if(gameMode !== "endless") return;
 
-  while(generatedTopY > cameraY - canvas.height*2.3){
+  while(generatedTopY > cameraY - canvas.height*3.2){
     generatedTopY -= 90 + Math.random()*24;
-    platforms.push(createRandomPlatform(generatedTopY));
+    platforms.push(createRandomPlatform(generatedTopY, lastGeneratedX));
   }
 
-  const keepFromY = cameraY - 260;
-  const keepToY = cameraY + canvas.height + 260;
-  platforms = platforms.filter(p => p.y > keepFromY && p.y < keepToY);
+  const keepUpperY = cameraY - canvas.height*3.4;
+  const keepLowerY = cameraY + canvas.height + 320;
+  platforms = platforms.filter(p => p.y > keepUpperY && p.y < keepLowerY);
 }
 
 function startEndless(){
