@@ -40,12 +40,14 @@ small{opacity:0.85;}
   <div>⏱ <span id="time">0</span>s</div>
   <div>Счет: <span id="platformsCount">0</span></div>
   <div>⬆ <span id="height">0</span>m</div>
+  <div>🪙 <span id="coinsCount">0</span></div>
   <div id="modeLabel">♾ Endless</div>
 </div>
 
 <div id="menu" class="overlay">
   <h1>Help the Heart ❤️</h1>
   <p>Прыгай вверх и ставь рекорды!</p>
+  <div style="margin-bottom:8px;">Баланс коинов: <span id="menuCoins">0</span></div>
   <div id="menuButtons">
     <button onclick="startEndless()">Старт</button>
     <button onclick="openLeaders()">Лидеры</button>
@@ -124,6 +126,7 @@ let visitedPlatforms = new Set();
 let scorePlatforms = 0;
 let lastFrame = performance.now();
 let secretTaps = 0;
+let coinsBalance = Number(localStorage.getItem("heart_coins") || 0);
 
 const deviceId = ensureDeviceId();
 let playerProfile = getProfile();
@@ -192,6 +195,8 @@ function createRandomPlatform(y, prevX = null){
     vx:0,
     broken:false,
     brokenUntil:0,
+    hasCoin:false,
+    coinTaken:false,
   };
 
   lastGeneratedX = x;
@@ -199,6 +204,11 @@ function createRandomPlatform(y, prevX = null){
   const r=Math.random();
   if(r<0.11){ p.type="moving"; p.vx=1.2 + Math.random()*1.0; }
   else if(r<0.20){ p.type="break"; }
+
+  if(p.type !== "break" && Math.random() < 0.09){
+    p.hasCoin = true;
+  }
+
   return p;
 }
 
@@ -208,7 +218,7 @@ function generateLevel(mode="endless"){
   const minGap = 88;
   const maxGap = 112;
 
-  const starter = { id: nextPlatformId++, x: 0, y: canvas.height-18, width:canvas.width, height:18, type:"normal", vx:0, broken:false, brokenUntil:0 };
+  const starter = { id: nextPlatformId++, x: 0, y: canvas.height-18, width:canvas.width, height:18, type:"normal", vx:0, broken:false, brokenUntil:0, hasCoin:false, coinTaken:false };
   arr.push(starter);
   lastGeneratedX = canvas.width/2 - 48;
 
@@ -219,8 +229,8 @@ function generateLevel(mode="endless"){
 
   if(mode === "valentine"){
     const finalY = -2280;
-    arr.push({ id: nextPlatformId++, x:canvas.width/2-60, y:finalY+90, width:120, height:14, type:"moving", vx:1.8, broken:false, brokenUntil:0 });
-    arr.push({ id: nextPlatformId++, x:0, y:finalY, width:canvas.width, height:20, type:"final", vx:0, broken:false, brokenUntil:0 });
+    arr.push({ id: nextPlatformId++, x:canvas.width/2-60, y:finalY+90, width:120, height:14, type:"moving", vx:1.8, broken:false, brokenUntil:0, hasCoin:false, coinTaken:false });
+    arr.push({ id: nextPlatformId++, x:0, y:finalY, width:canvas.width, height:20, type:"final", vx:0, broken:false, brokenUntil:0, hasCoin:false, coinTaken:false });
     generatedTopY = finalY;
   }else{
     generatedTopY = y;
@@ -330,6 +340,28 @@ function submitScore(score){
   saveLeaderboard(rows);
 }
 
+
+function collectCoin(p){
+  if(!p.hasCoin || p.coinTaken) return;
+  p.coinTaken = true;
+  coinsBalance += 1;
+  localStorage.setItem("heart_coins", String(coinsBalance));
+}
+
+function checkCoinPickup(){
+  const px = player.x + player.size/2;
+  const py = player.y + player.size/2;
+  for(const p of platforms){
+    if(!p.hasCoin || p.coinTaken) continue;
+    if(p.type === "break" && p.broken) continue;
+    const cx = p.x + p.width/2;
+    const cy = p.y - 8;
+    if(Math.abs(px-cx) < 16 && Math.abs(py-cy) < 18){
+      collectCoin(p);
+    }
+  }
+}
+
 function renderLeaders(){
   const rows = getLeaderboard().sort((a,b)=>b.score-a.score || a.updatedAt-b.updatedAt);
   const list = document.getElementById("leadersList");
@@ -402,6 +434,7 @@ function update(dt60){
 
       player.y = p.y - player.size;
       markPlatformVisited(p);
+      collectCoin(p);
 
       player.vy = physics.jumpForce;
 
@@ -430,6 +463,7 @@ function update(dt60){
   particles.forEach(p=>{ p.x+=p.vx*dt60; p.y+=p.vy*dt60; p.life-=dt60; });
   particles = particles.filter(p=>p.life>0);
 
+  checkCoinPickup();
   updateTrail(dt60);
   extendEndlessPlatforms();
 
@@ -441,6 +475,8 @@ function updateHud(){
   document.getElementById("time").innerText = Math.floor((Date.now()-startTime)/1000);
   document.getElementById("height").innerText = Math.floor(maxHeight/100);
   document.getElementById("platformsCount").innerText = scorePlatforms;
+  document.getElementById("coinsCount").innerText = coinsBalance;
+  document.getElementById("menuCoins").innerText = coinsBalance;
 }
 
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -460,31 +496,46 @@ function drawPixelRect(x,y,w,h,color,size=4){
 function getPlanetNameByHeight(m){
   if(m<100) return null;
   const idx = Math.floor((m-100)/100);
-  const names = ["Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune","Pluto"];
+  const names = ["Moon","Mars","Jupiter","Saturn","Uranus","Neptune","Pluto"];
   return names[Math.min(idx, names.length-1)];
 }
 
 function drawPlanet(name, x, y, r){
   if(!name) return;
-  const palettes = {
-    Moon:["#9da3ad","#c7ccd4","#7b828f"],
-    Mercury:["#9a8e82","#b5a79a","#6c635b"],
-    Venus:["#e3c488","#f0dbaf","#b99658"],
-    Mars:["#b34a36","#d16d52","#7f2f22"],
-    Jupiter:["#c7a178","#e6c9a8","#a1744a"],
-    Saturn:["#bea077","#dcc4a0","#8e7252"],
-    Uranus:["#7bc6cc","#9de0e4","#4a9096"],
-    Neptune:["#3b69c6","#6b90df","#223f86"],
-    Pluto:["#8a7f77","#b0a59d","#5d544d"],
-  };
-  const c = palettes[name] || palettes.Pluto;
-  drawPixelRect(x-r, y-r, r*2, r*2, c[0], 4);
-  drawPixelRect(x-r+8, y-r+6, r, r, c[1], 4);
-  drawPixelRect(x-r+2, y+r/3, r+4, 6, c[2], 2);
-  if(name==="Saturn"){
-    ctx.fillStyle = "#d8c4a1";
-    ctx.fillRect(x-r-8, y-2, r*2+16, 4);
+  ctx.globalAlpha = 0.45;
+
+  if(name === "Moon"){
+    drawPixelRect(x-r, y-r, r*2, r*2, "#8f95a0", 4);
+    drawPixelRect(x-r+10, y-r+8, r-8, r-8, "#aab0bc", 4);
+    drawPixelRect(x-r+4, y+2, 10, 8, "#6f7683", 2);
+  } else if(name === "Mars"){
+    drawPixelRect(x-r, y-r, r*2, r*2, "#8a4c43", 4);
+    drawPixelRect(x-r+6, y-r+6, r+4, 8, "#b46b5f", 2);
+    drawPixelRect(x-r+12, y+4, r-8, 6, "#6f392f", 2);
+  } else if(name === "Jupiter"){
+    drawPixelRect(x-r, y-r, r*2, r*2, "#8e6f57", 4);
+    drawPixelRect(x-r, y-r+8, r*2, 6, "#b08f70", 2);
+    drawPixelRect(x-r, y+2, r*2, 5, "#d0b08d", 2);
+    drawPixelRect(x+8, y+6, 6, 6, "#9f4f43", 2);
+  } else if(name === "Saturn"){
+    drawPixelRect(x-r+4, y-r+2, r*2-8, r*2-8, "#9f8567", 4);
+    drawPixelRect(x-r+10, y-r+10, r-8, 6, "#c2aa8d", 2);
+    drawPixelRect(x-r-12, y-2, r*2+24, 4, "#9f9077", 2);
+  } else if(name === "Uranus"){
+    drawPixelRect(x-r, y-r, r*2, r*2, "#5a8e98", 4);
+    drawPixelRect(x-r+8, y-r+8, r, r, "#88bcc6", 4);
+    drawPixelRect(x-r+4, y+4, r+6, 4, "#4a7a83", 2);
+  } else if(name === "Neptune"){
+    drawPixelRect(x-r, y-r, r*2, r*2, "#3b5e90", 4);
+    drawPixelRect(x-r+4, y-r+6, r+8, 5, "#587ab3", 2);
+    drawPixelRect(x-r+10, y+5, r-10, 5, "#27456f", 2);
+  } else {
+    drawPixelRect(x-r+4, y-r+4, r*2-8, r*2-8, "#7b726d", 4);
+    drawPixelRect(x-r+10, y-r+8, r-12, r-12, "#9a9089", 4);
+    drawPixelRect(x-r+6, y+4, 10, 5, "#615a56", 2);
   }
+
+  ctx.globalAlpha = 1;
 }
 
 function drawBackground(){
@@ -511,10 +562,10 @@ function drawBackground(){
   if(progress > 0.45){
     const heightMeters = Math.floor(maxHeight/100);
     const planetName = getPlanetNameByHeight(heightMeters);
-    const cycle = (heightMeters % 100) / 100;
-    const px = canvas.width - 120 + Math.sin(Date.now()/2200)*18;
-    const py = 120 + cycle*14;
-    drawPlanet(planetName, px, py, 40);
+    const px = canvas.width - 118 + Math.sin(Date.now()/2600)*14;
+    const scrollDown = ((-cameraY*0.09) % (canvas.height + 220));
+    const py = -110 + scrollDown;
+    drawPlanet(planetName, px, py, 38);
   }
 }
 
@@ -594,6 +645,13 @@ function drawTrail(){
   }
 }
 
+
+function drawCoin(x,y){
+  drawPixelRect(x-6, y-6, 12, 12, "#d8a52f", 2);
+  drawPixelRect(x-4, y-4, 8, 8, "#ffd66b", 2);
+  drawPixelRect(x-1, y-4, 2, 8, "#c99324", 1);
+}
+
 function drawHeart(x,y){
   const s=3;
   const px=[[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[4,4],[3,5]];
@@ -661,7 +719,10 @@ function draw(){
 
   ctx.save();
   ctx.translate(0,-cameraY);
-  for(const p of platforms) drawPlatform(p);
+  for(const p of platforms){
+    drawPlatform(p);
+    if(p.hasCoin && !p.coinTaken && !(p.type==="break" && p.broken)) drawCoin(p.x + p.width/2, p.y - 8);
+  }
   drawTrail();
   drawHeart(player.x,player.y);
   ctx.restore();
@@ -679,6 +740,7 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
+updateHud();
 showScreen("menu");
 requestAnimationFrame(loop);
 </script>
